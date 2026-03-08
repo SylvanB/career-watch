@@ -1,0 +1,17 @@
+{
+    email admin@example.com
+}
+
+career-watch.localhost {
+    reverse_proxy /api/* 127.0.0.1:8080
+
+    @static {
+        not path /api/*
+    }
+
+    handle @static {
+        root * ./public
+        file_server
+    }
+}
+
