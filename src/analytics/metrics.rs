@@ -3,7 +3,7 @@
 //! before the migration has been applied.
 
 use anyhow::Result;
-use chrono::{DateTime, NaiveDate, Utc};
+use chrono::NaiveDate;
 use serde::Serialize;
 use sqlx::PgPool;
 use uuid::Uuid;

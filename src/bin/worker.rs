@@ -24,7 +24,7 @@ use career_watch::db::create_pool;
 use career_watch::email::EmailClient;
 use career_watch::models::{JobPosting, SubscriptionTier};
 use career_watch::scraper::PageScraper;
-use chrono::{Utc, Datelike};
+use chrono::Utc;
 use sha2::{Digest, Sha256};
 use sqlx::types::Json;
 use sqlx::PgPool;
