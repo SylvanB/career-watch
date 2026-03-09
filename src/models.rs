@@ -115,6 +115,7 @@ pub struct WatchRow {
     pub last_jobs_json: Option<Json<Vec<JobPosting>>>,
     pub job_selector: Option<String>,
     pub user_id: Option<Uuid>,
+    pub company_id: Option<Uuid>,
 }
 
 /// Public representation of a watcher returned from the HTTP API.
@@ -127,6 +128,9 @@ pub struct Watch {
     pub created_at: DateTime<Utc>,
     pub active: bool,
     pub job_selector: Option<String>,
+    /// Set when this watcher was created from the company catalog.
+    /// Used by the frontend to link to the signals dashboard.
+    pub company_id: Option<Uuid>,
 }
 
 impl From<WatchRow> for Watch {
@@ -139,6 +143,7 @@ impl From<WatchRow> for Watch {
             created_at: row.created_at,
             active: row.active,
             job_selector: row.job_selector,
+            company_id: row.company_id,
         }
     }
 }

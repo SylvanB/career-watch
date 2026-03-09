@@ -93,38 +93,35 @@ const PLATFORMS = [
          class="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
       <template x-for="c in companies" :key="c.id">
         <div
-          class="card flex flex-col justify-between p-4 transition-shadow hover:shadow-md"
+          class="card flex flex-col justify-between p-4 transition-shadow hover:shadow-md cursor-pointer group"
           :class="c.watcher_id ? 'ring-2 ring-brand-600 ring-inset' : ''"
+          @click.self="window.location.href = `/company?id=${c.id}`"
         >
           <div class="mb-3">
-            <!-- Platform badge -->
+            <!-- Platform badge + watching indicator -->
             <div class="mb-2 flex items-center justify-between">
               <span
                 class="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium"
                 :class="platformBadgeClass(c.platform)"
                 x-text="platformLabel(c.platform)"
               ></span>
-              <!-- Watching indicator -->
               <span x-show="c.watcher_id" class="text-xs font-semibold text-brand-600">Watching</span>
             </div>
 
-            <!-- Company name -->
-            <p class="font-semibold text-gray-900 leading-snug" x-text="c.name"></p>
+            <!-- Company name — links to signals page -->
+            <a :href="`/company?id=${c.id}`"
+               class="font-semibold text-gray-900 leading-snug hover:text-brand-600 transition-colors block"
+               x-text="c.name"></a>
             <!-- Domain -->
             <a
               :href="`https://${c.domain}`"
               target="_blank"
               rel="noopener"
+              @click.stop
               class="mt-0.5 block truncate text-xs text-gray-400 hover:text-brand-600"
               x-text="c.domain"
             ></a>
           </div>
-
-          <!-- Signals link -->
-          <a :href="`/company?id=${c.id}`"
-             class="mb-2 block text-center text-xs text-gray-400 hover:text-brand-600 transition-colors">
-            View hiring signals →
-          </a>
 
           <!-- Watch / Unwatch button -->
           <button

@@ -22,7 +22,7 @@ pub async fn list_watches(
     let rows: Vec<WatchRow> = sqlx::query_as::<_, WatchRow>(
         r#"
         SELECT id, company_name, url, email, last_hash, last_checked_at,
-               created_at, active, last_jobs_json, job_selector, user_id
+               created_at, active, last_jobs_json, job_selector, user_id, company_id
         FROM watchers
         WHERE active = true
           AND user_id = $1

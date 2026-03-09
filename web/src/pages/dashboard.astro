@@ -88,7 +88,19 @@ import App from '../layouts/App.astro';
           <template x-for="w in watchers" :key="w.id">
             <tr class="hover:bg-gray-50 transition-colors">
               <td class="px-6 py-4">
-                <span class="font-medium text-gray-900 text-sm" x-text="w.company_name"></span>
+                <!-- If linked to a catalog company, name is a signals link -->
+                <a x-show="w.company_id"
+                   :href="`/company?id=${w.company_id}`"
+                   class="font-medium text-sm text-brand-600 hover:text-brand-700 transition-colors"
+                   x-text="w.company_name"></a>
+                <span x-show="!w.company_id"
+                      class="font-medium text-gray-900 text-sm"
+                      x-text="w.company_name"></span>
+                <!-- Signal indicator for catalog watchers -->
+                <span x-show="w.company_id"
+                      class="ml-1.5 inline-flex items-center rounded-full bg-brand-50 px-1.5 py-0.5 text-[9px] font-semibold text-brand-700">
+                  signals
+                </span>
               </td>
               <td class="px-6 py-4 hidden sm:table-cell">
                 <a

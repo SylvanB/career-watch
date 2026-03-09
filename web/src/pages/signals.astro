@@ -1,0 +1,243 @@
+---
+import App from '../layouts/App.astro';
+---
+
+<App title="Hiring signals">
+  <div x-data="signalsPage()" x-init="init()">
+
+    <!-- Free-tier gate -->
+    <div x-show="user && user.tier === 'free'" x-cloak
+         class="card flex flex-col items-center justify-center py-24 text-center px-6">
+      <div class="mb-4 text-5xl">📡</div>
+      <h1 class="text-2xl font-bold text-gray-900 mb-2">Hiring Signals</h1>
+      <p class="text-gray-500 max-w-md mb-8">
+        Cross-company hiring intelligence — spikes, department expansions, and
+        geo moves across all your watched companies — is a <strong>Pro</strong> feature.
+      </p>
+      <a href="/account" class="btn-primary px-8 py-3">Upgrade to Pro</a>
+      <p class="mt-4 text-xs text-gray-400">
+        You can still view individual company signals from the
+        <a href="/discover" class="underline">Discover page</a>.
+      </p>
+    </div>
+
+    <!-- Loading -->
+    <div x-show="loading && user?.tier !== 'free'" class="space-y-4">
+      <div class="h-8 w-48 animate-pulse rounded bg-gray-100"></div>
+      <div class="grid gap-4 sm:grid-cols-3">
+        <template x-for="i in [1,2,3]"><div class="h-40 animate-pulse rounded-lg bg-gray-100"></div></template>
+      </div>
+      <div class="h-64 animate-pulse rounded-lg bg-gray-100"></div>
+    </div>
+
+    <!-- Content (Pro/Business) -->
+    <div x-show="!loading && user?.tier !== 'free'">
+
+      <div class="mb-8 flex items-center justify-between">
+        <div>
+          <h1 class="text-2xl font-bold text-gray-900">Hiring signals</h1>
+          <p class="mt-1 text-sm text-gray-500">
+            Intelligence across your <span class="font-medium text-gray-700" x-text="watchedCount"></span>
+            watched companies.
+          </p>
+        </div>
+        <span class="text-xs text-gray-400" x-text="'Updated ' + lastUpdated"></span>
+      </div>
+
+      <!-- No watched companies with data -->
+      <div x-show="!loading && watchedCount === 0" class="card py-20 text-center">
+        <p class="text-gray-500 mb-4">No companies with analytics data yet.</p>
+        <p class="text-sm text-gray-400 mb-6">
+          Watch companies from the catalog and run the worker a few times to start seeing signals.
+        </p>
+        <a href="/discover" class="btn-primary">Browse company catalog</a>
+      </div>
+
+      <!-- Signal summary cards -->
+      <div x-show="watchedCount > 0" class="mb-8 grid gap-4 sm:grid-cols-3">
+        <div class="card p-5">
+          <p class="text-xs font-semibold uppercase tracking-wider text-gray-400 mb-2">Hiring spikes</p>
+          <p class="text-4xl font-extrabold"
+             :class="signals?.spikes?.length > 0 ? 'text-amber-500' : 'text-gray-300'"
+             x-text="signals?.spikes?.length ?? '—'"></p>
+          <p class="text-xs text-gray-400 mt-1">companies above baseline</p>
+        </div>
+        <div class="card p-5">
+          <p class="text-xs font-semibold uppercase tracking-wider text-gray-400 mb-2">Expanding depts</p>
+          <p class="text-4xl font-extrabold"
+             :class="signals?.dept_expansions?.length > 0 ? 'text-green-500' : 'text-gray-300'"
+             x-text="signals?.dept_expansions?.length ?? '—'"></p>
+          <p class="text-xs text-gray-400 mt-1">department growth signals</p>
+        </div>
+        <div class="card p-5">
+          <p class="text-xs font-semibold uppercase tracking-wider text-gray-400 mb-2">New regions</p>
+          <p class="text-4xl font-extrabold"
+             :class="signals?.new_regions?.length > 0 ? 'text-blue-500' : 'text-gray-300'"
+             x-text="signals?.new_regions?.length ?? '—'"></p>
+          <p class="text-xs text-gray-400 mt-1">geographic expansions last 30d</p>
+        </div>
+      </div>
+
+      <!-- Hiring spikes -->
+      <div x-show="signals?.spikes?.length > 0" class="card mb-6 overflow-hidden">
+        <div class="border-b border-gray-100 px-6 py-4 flex items-center gap-2">
+          <span class="text-lg">⚡</span>
+          <h2 class="text-sm font-semibold text-gray-900">Hiring spikes</h2>
+          <span class="ml-auto text-xs text-gray-400">Last 7 days vs 90-day baseline</span>
+        </div>
+        <div class="divide-y divide-gray-50">
+          <template x-for="spike in signals?.spikes" :key="spike.company_id">
+            <div class="flex items-center justify-between px-6 py-4 hover:bg-gray-50 transition-colors">
+              <div class="flex items-center gap-3">
+                <div class="flex h-9 w-9 items-center justify-center rounded-full bg-amber-100 text-amber-600 font-bold text-sm"
+                     x-text="spike.multiplier?.toFixed(1) + '×'"></div>
+                <div>
+                  <a :href="`/company?id=${spike.company_id}`"
+                     class="font-semibold text-gray-900 hover:text-brand-600 transition-colors"
+                     x-text="spike.company_name"></a>
+                  <p class="text-xs text-gray-400">
+                    <span x-text="spike.new_jobs_7d"></span> new roles in the last 7 days
+                  </p>
+                </div>
+              </div>
+              <a :href="`/company?id=${spike.company_id}`"
+                 class="text-xs font-medium text-brand-600 hover:text-brand-700">
+                View signals →
+              </a>
+            </div>
+          </template>
+        </div>
+      </div>
+
+      <!-- Department expansions -->
+      <div x-show="signals?.dept_expansions?.length > 0" class="card mb-6 overflow-hidden">
+        <div class="border-b border-gray-100 px-6 py-4 flex items-center gap-2">
+          <span class="text-lg">📈</span>
+          <h2 class="text-sm font-semibold text-gray-900">Department expansions</h2>
+          <span class="ml-auto text-xs text-gray-400">vs 60 days ago</span>
+        </div>
+        <div class="divide-y divide-gray-50">
+          <template x-for="exp in signals?.dept_expansions" :key="exp.company_id + exp.department">
+            <div class="flex items-center justify-between px-6 py-4 hover:bg-gray-50 transition-colors">
+              <div class="flex items-center gap-3">
+                <div class="flex h-9 w-9 items-center justify-center rounded-full bg-green-100 text-green-700 font-bold text-xs"
+                     x-text="'+' + exp.growth_pct + '%'"></div>
+                <div>
+                  <a :href="`/company?id=${exp.company_id}`"
+                     class="font-semibold text-gray-900 hover:text-brand-600 transition-colors"
+                     x-text="exp.company_name"></a>
+                  <p class="text-xs text-gray-400">
+                    <span class="capitalize" x-text="exp.department.replace('_',' ')"></span>
+                    — <span x-text="exp.count_now"></span> active roles
+                  </p>
+                </div>
+              </div>
+              <a :href="`/company?id=${exp.company_id}`"
+                 class="text-xs font-medium text-brand-600 hover:text-brand-700">
+                View signals →
+              </a>
+            </div>
+          </template>
+        </div>
+      </div>
+
+      <!-- New regions -->
+      <div x-show="signals?.new_regions?.length > 0" class="card overflow-hidden">
+        <div class="border-b border-gray-100 px-6 py-4 flex items-center gap-2">
+          <span class="text-lg">🌍</span>
+          <h2 class="text-sm font-semibold text-gray-900">Geographic expansion</h2>
+          <span class="ml-auto text-xs text-gray-400">New regions in the last 30 days</span>
+        </div>
+        <div class="divide-y divide-gray-50">
+          <template x-for="reg in signals?.new_regions" :key="reg.company_id + reg.region">
+            <div class="flex items-center justify-between px-6 py-4 hover:bg-gray-50 transition-colors">
+              <div class="flex items-center gap-3">
+                <div class="flex h-9 w-9 items-center justify-center rounded-full bg-blue-100 text-blue-700 text-sm"
+                     x-text="regionFlag(reg.region)"></div>
+                <div>
+                  <a :href="`/company?id=${reg.company_id}`"
+                     class="font-semibold text-gray-900 hover:text-brand-600 transition-colors"
+                     x-text="reg.company_name"></a>
+                  <p class="text-xs text-gray-400 capitalize"
+                     x-text="'Hiring in ' + reg.region.replace('_',' ')"></p>
+                </div>
+              </div>
+              <a :href="`/company?id=${reg.company_id}`"
+                 class="text-xs font-medium text-brand-600 hover:text-brand-700">
+                View signals →
+              </a>
+            </div>
+          </template>
+        </div>
+      </div>
+
+      <!-- Empty state when we have companies but no signals yet -->
+      <div x-show="watchedCount > 0 && !hasAnySignals()" x-cloak class="card py-20 text-center">
+        <div class="text-4xl mb-4">🔭</div>
+        <h3 class="text-base font-semibold text-gray-900 mb-2">No signals yet</h3>
+        <p class="text-sm text-gray-500 max-w-sm mx-auto">
+          Signals appear after the worker has collected enough data to detect patterns.
+          Check back after a few worker runs.
+        </p>
+      </div>
+
+    </div>
+  </div>
+
+  <script is:inline>
+    function signalsPage() {
+      return {
+        user:         null,
+        signals:      null,
+        loading:      true,
+        watchedCount: 0,
+        lastUpdated:  'just now',
+
+        async init() {
+          window.addEventListener('user-loaded', (e) => {
+            this.user = e.detail;
+          });
+
+          // Short-circuit for free tier — no need to fetch signals
+          const meRes = await fetch('/api/me');
+          if (!meRes.ok) { window.location.href = '/login'; return; }
+          this.user = await meRes.json();
+
+          if (this.user.tier !== 'free') {
+            await this.load();
+          }
+
+          this.loading = false;
+        },
+
+        async load() {
+          const [sigRes, watchRes] = await Promise.all([
+            fetch('/api/signals'),
+            fetch('/api/watches'),
+          ]);
+          if (sigRes.ok)   this.signals = await sigRes.json();
+          if (watchRes.ok) {
+            const watches = await watchRes.json();
+            // Only count watchers that came from the catalog (have analytics data)
+            this.watchedCount = watches.filter(w => w.company_id).length;
+          }
+          this.lastUpdated = new Date().toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
+        },
+
+        hasAnySignals() {
+          return (this.signals?.spikes?.length       ?? 0) > 0
+              || (this.signals?.dept_expansions?.length ?? 0) > 0
+              || (this.signals?.new_regions?.length   ?? 0) > 0;
+        },
+
+        regionFlag(region) {
+          const flags = {
+            remote: '🌐', us: '🇺🇸', europe: '🇪🇺',
+            apac: '🌏', latam: '🌎', unknown: '📍',
+          };
+          return flags[region] || '📍';
+        },
+      };
+    }
+  </script>
+</App>

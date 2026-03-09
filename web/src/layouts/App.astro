@@ -50,6 +50,20 @@ const { title } = Astro.props;
             </a>
             <a href="/dashboard" class="text-sm font-medium text-gray-600 hover:text-gray-900 transition-colors">Watchers</a>
             <a href="/discover" class="text-sm font-medium text-gray-600 hover:text-gray-900 transition-colors">Discover</a>
+            <!-- Signals — Pro/Business gets full feed; Free sees upgrade prompt -->
+            <a href="/signals" class="relative text-sm font-medium transition-colors"
+               :class="user?.tier !== 'free'
+                 ? 'text-gray-600 hover:text-gray-900'
+                 : 'text-gray-300 cursor-pointer'"
+               :title="user?.tier === 'free' ? 'Upgrade to Pro to unlock cross-company signals' : ''">
+              Signals
+              <!-- Lock badge for free tier -->
+              <span x-show="user?.tier === 'free'"
+                    class="absolute -top-1.5 -right-3 text-[9px]">🔒</span>
+              <!-- Pro/Business indicator dot -->
+              <span x-show="user?.tier !== 'free'"
+                    class="absolute -top-1 -right-2 h-1.5 w-1.5 rounded-full bg-brand-600"></span>
+            </a>
             <!-- Notifications link with unread badge -->
             <a href="/notifications" class="relative text-sm font-medium text-gray-600 hover:text-gray-900 transition-colors">
               Notifications
