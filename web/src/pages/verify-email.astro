@@ -1,0 +1,98 @@
+---
+import Base from '../layouts/Base.astro';
+---
+
+<Base title="Verify email">
+  <div class="min-h-screen bg-gray-50 flex flex-col justify-center py-12 px-4">
+    <div class="sm:mx-auto sm:w-full sm:max-w-md">
+      <a href="/" class="flex justify-center items-center gap-2 font-bold text-gray-900 text-xl tracking-tight mb-8">
+        <svg class="h-7 w-7 text-brand-600" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M2.25 12l8.954-8.955c.44-.439 1.152-.439 1.591 0L21.75 12M4.5 9.75v10.125c0 .621.504 1.125 1.125 1.125H9.75v-4.875c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125V21h4.125c.621 0 1.125-.504 1.125-1.125V9.75M8.25 21h8.25" />
+        </svg>
+        CareerWatch
+      </a>
+
+      <div class="card px-8 py-10 text-center" x-data="verifyEmail()" x-init="verify()">
+
+        <!-- Verifying -->
+        <div x-show="state === 'loading'">
+          <svg class="animate-spin mx-auto h-10 w-10 text-brand-600 mb-4" fill="none" viewBox="0 0 24 24">
+            <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+            <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path>
+          </svg>
+          <p class="text-sm text-gray-500">Verifying your email address…</p>
+        </div>
+
+        <!-- Success -->
+        <div x-show="state === 'success'" x-cloak>
+          <div class="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-green-100">
+            <svg class="h-6 w-6 text-green-600" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M4.5 12.75l6 6 9-13.5" />
+            </svg>
+          </div>
+          <h2 class="text-lg font-semibold text-gray-900 mb-1">Email verified!</h2>
+          <p class="text-sm text-gray-500 mb-6">Your account is fully set up. Redirecting to your dashboard…</p>
+          <a href="/dashboard" class="btn-primary w-full justify-center">Go to dashboard</a>
+        </div>
+
+        <!-- Error -->
+        <div x-show="state === 'error'" x-cloak>
+          <div class="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-red-100">
+            <svg class="h-6 w-6 text-red-600" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126z" />
+            </svg>
+          </div>
+          <h2 class="text-lg font-semibold text-gray-900 mb-1">Verification failed</h2>
+          <p class="text-sm text-gray-500 mb-1" x-text="errorMsg"></p>
+          <p class="text-sm text-gray-400 mb-6">Links expire after 24 hours and can only be used once.</p>
+          <a href="/dashboard" class="btn-primary w-full justify-center mb-3">Request a new link</a>
+          <a href="/login" class="block text-sm text-gray-400 hover:text-gray-600">Back to login</a>
+        </div>
+
+        <!-- No token -->
+        <div x-show="state === 'missing'" x-cloak>
+          <p class="text-sm text-gray-500 mb-4">No verification token found in the URL.</p>
+          <a href="/login" class="btn-secondary w-full justify-center">Back to login</a>
+        </div>
+
+      </div>
+    </div>
+  </div>
+
+  <script is:inline>
+    function verifyEmail() {
+      return {
+        state: 'loading',
+        errorMsg: '',
+
+        async verify() {
+          const token = new URLSearchParams(window.location.search).get('token');
+          if (!token) {
+            this.state = 'missing';
+            return;
+          }
+
+          try {
+            const res = await fetch('/auth/verify-email', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ token }),
+            });
+
+            if (res.ok) {
+              this.state = 'success';
+              setTimeout(() => { window.location.href = '/dashboard'; }, 2000);
+            } else {
+              const data = await res.json().catch(() => ({}));
+              this.errorMsg = data.error || 'The link is invalid or has expired.';
+              this.state = 'error';
+            }
+          } catch {
+            this.errorMsg = 'Could not reach the server. Please try again.';
+            this.state = 'error';
+          }
+        },
+      };
+    }
+  </script>
+</Base>
