@@ -53,7 +53,6 @@ use axum::{
     routing::{delete, get, post},
     Json, Router,
 };
-use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use tokio::sync::RwLock;
 use tracing_subscriber::{util::SubscriberInitExt, EnvFilter};
@@ -79,9 +78,13 @@ impl Job {
             .join("-")
     }
 
-    /// ISO-8601 timestamp used as the `data-posted` attribute.
+    /// Stable value for the `data-posted` attribute.
+    ///
+    /// Must NOT use Utc::now() — a fresh timestamp on every render would cause
+    /// the scraper's posted_text to differ between runs, making every job look
+    /// "new" even when nothing changed. The slug is stable across renders.
     pub fn posted_at(&self) -> String {
-        Utc::now().format("%Y-%m-%dT%H:%M:%SZ").to_string()
+        self.slug()
     }
 }
 

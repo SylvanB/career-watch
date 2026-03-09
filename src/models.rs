@@ -155,14 +155,34 @@ pub struct CreateWatchRequest {
 }
 
 /// A single job posting extracted from a career page.
-#[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq, Hash)]
+///
+/// Identity is based solely on `title` + `company`. Fields like `posted_text`
+/// are metadata that change between scrapes (e.g. "14 minutes ago" → "1 hour ago")
+/// and must not affect equality or hashing — otherwise every scrape would
+/// incorrectly report every job as added/removed.
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct JobPosting {
     pub title: String,
     pub company: String,
     pub location: Option<String>,
-    /// Free-form text representing when this job was posted,
-    /// for example "14 minutes ago" or "2025-01-12".
+    /// Free-form text representing when this job was posted.
+    /// Not used for equality — this changes between scrapes.
     pub posted_text: Option<String>,
     /// Optional link to the job detail page.
     pub url: Option<String>,
+}
+
+impl PartialEq for JobPosting {
+    fn eq(&self, other: &Self) -> bool {
+        self.title == other.title && self.company == other.company
+    }
+}
+
+impl Eq for JobPosting {}
+
+impl std::hash::Hash for JobPosting {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.title.hash(state);
+        self.company.hash(state);
+    }
 }
