@@ -64,6 +64,9 @@ struct OllamaMessage {
 struct OllamaOptions {
     temperature: f32,
     num_predict: u32,
+    /// Limit context window — ReaderLM-v2 defaults to 512K which causes
+    /// Ollama to allocate ~15GB KV cache. 16K is plenty for a career page.
+    num_ctx: u32,
 }
 
 #[derive(Deserialize)]
@@ -91,7 +94,7 @@ async fn ollama_chat(
         messages: vec![OllamaMessage { role: "user".into(), content: prompt.into() }],
         format,
         stream: false,
-        options: OllamaOptions { temperature: 0.1, num_predict: max_tokens },
+        options: OllamaOptions { temperature: 0.1, num_predict: max_tokens, num_ctx: 16_384 },
     };
 
     let response = client
