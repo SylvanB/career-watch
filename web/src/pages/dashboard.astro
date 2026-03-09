@@ -240,16 +240,29 @@ import App from '../layouts/App.astro';
             <input id="edit-selector" type="text" x-model="editForm.job_selector"
                    class="field font-mono text-xs"
                    placeholder="div.opening a" />
-            <div class="mt-2 space-y-1">
+            <div class="mt-2 space-y-1.5">
               <p class="text-xs text-gray-400">Common selectors by platform:</p>
-              <div class="flex flex-wrap gap-1">
-                <template x-for="hint in selectorHints()" :key="hint[0]">
-                  <button type="button"
-                    @click="editForm.job_selector = hint[1]"
-                    class="rounded bg-gray-100 px-2 py-0.5 font-mono text-[10px] text-gray-600 hover:bg-brand-50 hover:text-brand-700 transition-colors">
-                    <span class="font-sans not-italic text-gray-400 mr-1" x-text="hint[0] + ':'"></span><span x-text="hint[1]"></span>
-                  </button>
-                </template>
+              <div class="flex flex-wrap gap-1.5">
+                <button type="button" @click="editForm.job_selector = 'div.opening a'"
+                  class="rounded bg-gray-100 px-2 py-1 text-xs text-gray-600 hover:bg-brand-50 hover:text-brand-700 transition-colors">
+                  <span class="text-gray-400">Greenhouse</span> · <code>div.opening a</code>
+                </button>
+                <button type="button" @click="editForm.job_selector = 'div.posting h5'"
+                  class="rounded bg-gray-100 px-2 py-1 text-xs text-gray-600 hover:bg-brand-50 hover:text-brand-700 transition-colors">
+                  <span class="text-gray-400">Lever</span> · <code>div.posting h5</code>
+                </button>
+                <button type="button" @click="editForm.job_selector = '.job-list-item h4'"
+                  class="rounded bg-gray-100 px-2 py-1 text-xs text-gray-600 hover:bg-brand-50 hover:text-brand-700 transition-colors">
+                  <span class="text-gray-400">SmartRecruiters</span> · <code>.job-list-item h4</code>
+                </button>
+                <button type="button" @click="editForm.job_selector = '.job-card h3'"
+                  class="rounded bg-gray-100 px-2 py-1 text-xs text-gray-600 hover:bg-brand-50 hover:text-brand-700 transition-colors">
+                  <span class="text-gray-400">Generic card</span> · <code>.job-card h3</code>
+                </button>
+                <button type="button" @click="editForm.job_selector = '[data-job-id]'"
+                  class="rounded bg-gray-100 px-2 py-1 text-xs text-gray-600 hover:bg-brand-50 hover:text-brand-700 transition-colors">
+                  <span class="text-gray-400">data attr</span> · <code>[data-job-id]</code>
+                </button>
               </div>
             </div>
           </div>
@@ -371,17 +384,6 @@ import App from '../layouts/App.astro';
           } finally {
             this.editLoading = false;
           }
-        },
-
-        // Quick-pick selector hints shown inside the edit modal
-        selectorHints() {
-          return [
-            ['Greenhouse', 'div.opening a'],
-            ['Lever',      'div.posting h5'],
-            ['SmartRecr.', '.job-list-item h4'],
-            ['Generic',    '.job-card h3'],
-            ['Generic',    '[data-job-id]'],
-          ];
         },
 
         get atLimit() {
