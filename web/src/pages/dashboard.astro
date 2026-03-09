@@ -63,10 +63,13 @@ import App from '../layouts/App.astro';
         <path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
       </svg>
       <h3 class="text-base font-semibold text-gray-900 mb-2">No watchers yet</h3>
-      <p class="text-sm text-gray-500 mb-6 max-w-xs">
-        Add your first company career page to start getting job change alerts.
+      <p class="text-sm text-gray-500 mb-4 max-w-xs">
+        Browse companies we've already discovered, or add a career page URL manually.
       </p>
-      <button @click="showAddModal = true" class="btn-primary">Add your first watcher</button>
+      <div class="flex flex-col sm:flex-row gap-3">
+        <a href="/discover" class="btn-primary">Browse company catalog</a>
+        <button @click="showAddModal = true" class="btn-secondary">Add custom URL</button>
+      </div>
     </div>
 
     <!-- Watcher table -->

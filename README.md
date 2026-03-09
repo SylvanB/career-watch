@@ -85,7 +85,7 @@ cp .env.example .env   # local dev defaults included
 
 | Variable               | Default (local dev)                                               | Description                                              |
 |------------------------|-------------------------------------------------------------------|----------------------------------------------------------|
-| `DATABASE_URL`         | `postgres://career_watch:password@localhost:5432/career_watch`   | PostgreSQL connection string                             |
+| `DATABASE_URL`         | `postgres://career_watch:password@localhost:5432/career_watch`    | PostgreSQL connection string                             |
 | `BIND_ADDR`            | `0.0.0.0:8080`                                                    | API server bind address                                  |
 | `SMTP_HOST`            | `localhost`                                                       | SMTP host (Mailpit locally)                              |
 | `SMTP_PORT`            | `1025`                                                            | SMTP port                                                |

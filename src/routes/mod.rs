@@ -21,6 +21,7 @@ use crate::routes::{
     admin::{get_user, list_users, patch_user_tier},
     auth::{forgot_password, login, logout, register, reset_password, verify_email},
     billing::{create_checkout, create_portal, stripe_webhook},
+    companies::{list_companies, unwatch_company, watch_company},
     health::health,
     me::me,
     notifications::{list_notifications, mark_all_read},
@@ -31,6 +32,7 @@ use crate::AppState;
 pub mod admin;
 pub mod auth;
 pub mod billing;
+pub mod companies;
 pub mod health;
 pub mod me;
 pub mod notifications;
@@ -58,6 +60,8 @@ pub fn router(state: AppState) -> Router {
 
     let protected = Router::new()
         .route("/api/me", get(me))
+        .route("/api/companies", get(list_companies))
+        .route("/api/companies/:id/watch", post(watch_company).delete(unwatch_company))
         .route("/api/notifications", get(list_notifications))
         .route("/api/notifications/read-all", post(mark_all_read))
         .route("/api/watches", get(list_watches).post(create_watch))
