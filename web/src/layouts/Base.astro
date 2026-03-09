@@ -30,8 +30,9 @@ const fullTitle = title === 'Career Watch' ? title : `${title} — Career Watch`
       rel="stylesheet"
     />
 
-    <!-- Alpine.js -->
+    <!-- Alpine.js — is:inline stops Astro from trying to bundle a CDN URL -->
     <script
+      is:inline
       defer
       src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"
     ></script>
