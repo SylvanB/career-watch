@@ -267,8 +267,8 @@ import App from '../layouts/App.astro';
             </div>
           </div>
 
-          <!-- Live test panel -->
-          <div x-show="editForm.job_selector" class="rounded-md border border-gray-200 overflow-hidden">
+          <!-- Live test panel — always visible so the Test button is easy to find -->
+          <div class="rounded-md border border-gray-200 overflow-hidden">
             <div class="flex items-center justify-between bg-gray-50 px-3 py-2 border-b border-gray-200">
               <span class="text-xs font-medium text-gray-600">Selector test</span>
               <button type="button" @click="testSelector()"
