@@ -243,11 +243,11 @@ import App from '../layouts/App.astro';
             <div class="mt-2 space-y-1">
               <p class="text-xs text-gray-400">Common selectors by platform:</p>
               <div class="flex flex-wrap gap-1">
-                <template x-for="[label, sel] in selectorHints()" :key="label">
+                <template x-for="hint in selectorHints()" :key="hint[0]">
                   <button type="button"
-                    @click="editForm.job_selector = sel"
+                    @click="editForm.job_selector = hint[1]"
                     class="rounded bg-gray-100 px-2 py-0.5 font-mono text-[10px] text-gray-600 hover:bg-brand-50 hover:text-brand-700 transition-colors">
-                    <span class="font-sans not-italic text-gray-400 mr-1" x-text="label + ':'"></span><span x-text="sel"></span>
+                    <span class="font-sans not-italic text-gray-400 mr-1" x-text="hint[0] + ':'"></span><span x-text="hint[1]"></span>
                   </button>
                 </template>
               </div>
