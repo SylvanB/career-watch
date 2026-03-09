@@ -97,7 +97,7 @@ import Base from '../layouts/Base.astro';
     </div>
   </div>
 
-  <script>
+  <script is:inline>
     function signupForm() {
       const params = new URLSearchParams(window.location.search);
       return {
