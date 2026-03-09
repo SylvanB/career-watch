@@ -1,226 +1,438 @@
 ## Career Watch
 
-**Career Watch** is a small SaaS-style service that lets users watch company career pages for changes and receive email notifications when something changes.
-
-It is optimized for:
-- **Career / jobs pages** that change infrequently.
-- **Simple email notifications** instead of a full-blown dashboard.
-
-The high-level design (from `OVERVIEW.md`):
-
-- **Reverse proxy**: `caddy`
-- **App server**: Rust binary (`career-watch-api`)
-- **Database**: PostgreSQL
-- **Queue**: Redis (optional – current implementation runs on cron without a queue)
-- **Worker**: Rust binary (`career-watch-worker`) invoked by cron
+**Career Watch** monitors company career pages for job listing changes and sends email notifications when something changes. It also includes an automatic discovery pipeline that finds career pages from seed sources.
 
 ```text
 internet
    ↓
-caddy
+Caddy (reverse proxy)
    ↓
-rust app (career-watch-api)
+career-watch-api  (Axum HTTP server)
    ↓
-postgres
+PostgreSQL
 
-cron → rust worker (career-watch-worker)
+cron → career-watch-worker      (detect changes, send email)
+cron → career-watch-discovery   (find new career pages)
 ```
 
 ---
 
-## Project layout
+## Quickstart (local dev)
 
-- `src/main.rs` – HTTP API server entrypoint (`career-watch-api`).
-- `src/bin/worker.rs` – scraping + email worker (`career-watch-worker`), designed to be run from cron.
-- `src/lib.rs` – shared library (`AppState`, modules).
-- `src/routes/` – HTTP routes (`/healthz`, `/api/watches`).
-- `src/models.rs` – DB and API models for watches.
-- `src/scraper.rs` – HTTP client + page hashing.
-- `src/email.rs` – SMTP email sending using `lettre`.
-- `src/config.rs` – environment-driven configuration.
-- `migrations/` – `sqlx` migrations (PostgreSQL schema).
-- `Caddyfile` – example Caddy reverse proxy configuration.
-- `.env.example` – example environment configuration.
+### 1. Prerequisites
+
+- [Rust](https://rustup.rs) stable toolchain
+- [Docker](https://docs.docker.com/get-docker/) + Docker Compose
+
+### 2. Start infrastructure
+
+```sh
+cp .env.example .env
+make up
+```
+
+This starts:
+
+| Service  | Address                    | Purpose                              |
+|----------|----------------------------|--------------------------------------|
+| Postgres | `localhost:5432`           | Database                             |
+| Mailpit  | `http://localhost:8025`    | Local SMTP — catches all outbound email, nothing is delivered |
+
+### 3. Run the API server
+
+```sh
+make run-api
+# Migrations run automatically on startup.
+# API available at http://localhost:8080
+```
+
+### 4. Run a worker pass
+
+```sh
+make run-worker       # check watchers for changes, send emails
+make run-discovery    # discover new company career pages
+```
+
+### 5. Check emails
+
+Open **http://localhost:8025** — every email the worker would send in production appears here.
 
 ---
 
-## Prerequisites
+## Local infrastructure (Docker Compose)
 
-- **Rust**: stable toolchain via `rustup` (recent stable recommended).
-- **PostgreSQL**: running instance reachable via `DATABASE_URL`.
-- **Caddy** (optional but recommended) for local reverse proxy / TLS in production.
-- **SMTP account**: e.g., Mailgun, SendGrid, or any SMTP server.
+All infrastructure is defined in `docker-compose.yml`.
 
-Optional:
-- **Cron** on your host (for the worker).
-- **Redis** if you later introduce queueing (not required by current code).
+### Starting and stopping
+
+```sh
+make up       # start Postgres + Mailpit (background)
+make down     # stop all containers
+make logs     # tail container logs
+```
+
+### Postgres
+
+| Setting   | Value          |
+|-----------|----------------|
+| Host      | `localhost`    |
+| Port      | `5432`         |
+| User      | `career_watch` |
+| Password  | `password`     |
+| Database  | `career_watch` |
+
+```sh
+make psql   # open a psql shell inside the container
+```
+
+### Mailpit (local SMTP)
+
+Mailpit acts as a catch-all SMTP server. The `.env.example` is pre-configured to point at it:
+
+```
+SMTP_HOST=localhost
+SMTP_PORT=1025
+SMTP_USER=   (leave blank)
+SMTP_PASS=   (leave blank)
+```
+
+Web UI: **http://localhost:8025**
+
+### Running the app in Docker (optional)
+
+The Rust binaries can also run inside Docker using the `app` Compose profile:
+
+```sh
+docker compose --profile app up
+```
+
+This builds and starts `api`, `worker`, and `discovery` containers. For most development work, running the binaries natively with `make run-*` is faster due to incremental compilation.
+
+### Resetting the database
+
+```sh
+make db-reset
+# Drops and recreates the career_watch database, then runs all migrations.
+```
 
 ---
 
 ## Configuration
 
-Configuration is read from environment variables via `AppConfig::from_env()` (see `src/config.rs`).
+Copy the example and fill in values:
 
-Copy the example file and adjust values:
-
-```bash
+```sh
 cp .env.example .env
 ```
 
-Required keys:
-
-- `DATABASE_URL` – e.g. `postgres://career_watch:password@localhost:5432/career_watch`
-- `BIND_ADDR` – bind address for the API server, default `0.0.0.0:8080`
-- `SMTP_HOST` – SMTP server host
-- `SMTP_PORT` – SMTP port, usually `587`
-- `SMTP_USER` – SMTP username / API key
-- `SMTP_PASS` – SMTP password / secret
-- `SMTP_FROM` – from address, e.g. `Career Watch <no-reply@example.com>`
-- `RUST_LOG` – optional, e.g. `info,tower_http=info`
-
----
-
-## Database
-
-Create a database and user, for example:
-
-```sql
-CREATE DATABASE career_watch;
-CREATE USER career_watch WITH PASSWORD 'password';
-GRANT ALL PRIVILEGES ON DATABASE career_watch TO career_watch;
-```
-
-Set `DATABASE_URL` accordingly, then migrations are applied automatically on startup via `sqlx::migrate!()`.
-
-Schema (see `migrations/0001_init.sql`):
-
-- `watchers` table:
-  - `id UUID PRIMARY KEY`
-  - `company_name TEXT`
-  - `url TEXT`
-  - `email TEXT`
-  - `last_hash TEXT`
-  - `last_checked_at TIMESTAMPTZ`
-  - `created_at TIMESTAMPTZ DEFAULT now()`
-  - `active BOOLEAN DEFAULT TRUE`
+| Variable       | Default (local dev)                                          | Description                              |
+|----------------|--------------------------------------------------------------|------------------------------------------|
+| `DATABASE_URL` | `postgres://career_watch:password@localhost:5432/career_watch` | PostgreSQL connection string           |
+| `BIND_ADDR`    | `0.0.0.0:8080`                                               | API server bind address                  |
+| `SMTP_HOST`    | `localhost`                                                  | SMTP server (use Mailpit locally)        |
+| `SMTP_PORT`    | `1025`                                                       | SMTP port                                |
+| `SMTP_USER`    | *(blank)*                                                    | SMTP username / API key                  |
+| `SMTP_PASS`    | *(blank)*                                                    | SMTP password / secret                   |
+| `SMTP_FROM`    | `Career Watch <no-reply@localhost>`                          | Sender address                           |
+| `RUST_LOG`     | `info,tower_http=info`                                       | Log filter                               |
 
 ---
 
-## Running the API server
+## API reference
 
-From the project root, with `.env` configured:
+### Health
 
-```bash
-cargo run --bin career-watch-api
+```
+GET /healthz  →  200 OK
 ```
 
-This will:
+### Watchers
 
-- Load configuration from `.env`.
-- Connect to Postgres and run migrations.
-- Start the HTTP server on `BIND_ADDR` (by default `0.0.0.0:8080`).
+| Method   | Path               | Description                   |
+|----------|--------------------|-------------------------------|
+| `GET`    | `/api/watches`     | List all active watchers      |
+| `POST`   | `/api/watches`     | Create a watcher              |
+| `DELETE` | `/api/watches/:id` | Soft-delete a watcher         |
 
-Health check:
+**Create a watcher:**
 
-- `GET /healthz` → `200 OK`
+```sh
+curl -s -X POST http://localhost:8080/api/watches \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "company_name": "Stripe",
+    "url": "https://stripe.com/jobs",
+    "email": "you@example.com",
+    "job_selector": "div.job-card"
+  }'
+```
 
-Watch management API (JSON):
-
-- `GET /api/watches` – list active watches.
-- `POST /api/watches` – create a watch:
-
-  ```json
-  {
-    "company_name": "Acme Corp",
-    "url": "https://acme.example.com/careers",
-    "email": "user@example.com"
-  }
-  ```
-
-- `DELETE /api/watches/:id` – soft-delete a watch (`active = false`).
-
-This is intentionally minimal; authorization / authn is out of scope for the base implementation.
+`job_selector` is optional. When set, the worker extracts individual job postings using that CSS selector and diffs them run-to-run. When omitted, the worker falls back to full-page hash comparison.
 
 ---
 
-## Running the worker
+## Workers
 
-The worker scans all active watchers, fetches the target page, hashes the HTML body, and sends an email if the hash has changed since the last run.
+### career-watch-worker — change detection
 
-Run once manually:
+Scans all active watchers, detects changes, and sends email notifications.
 
-```bash
-cargo run --bin career-watch-worker
+```sh
+make run-worker
+# or: cargo run --bin career-watch-worker
 ```
 
-Typical cron entry to run every 5 minutes (adjust paths):
+**Behaviour:**
+
+- **First run** for a watcher: stores the baseline hash / job snapshot — no email sent.
+- **Subsequent runs**: if the page changed (hash diff or job diff), an email is sent to the watcher's address.
+- With `job_selector`: diffs added/removed job postings and includes them in the email.
+- Without `job_selector`: reports that "the page changed" (hash-only mode).
+
+**Cron example:**
 
 ```cron
-*/5 * * * * cd /path/to/career-watch && cargo run --release --bin career-watch-worker >> /var/log/career-watch-worker.log 2>&1
+*/15 * * * * cd /path/to/career-watch && ./career-watch-worker >> /var/log/career-watch-worker.log 2>&1
 ```
 
-Behavior:
+### career-watch-discovery — automatic discovery
 
-- On first run for a watcher (no `last_hash`): store hash and timestamp, **no email**.
-- On subsequent runs:
-  - If hash changes: send email, update `last_hash` and `last_checked_at`.
-  - If hash is unchanged: only update `last_checked_at`.
+Finds new company career pages from seed sources and stores them in the `companies` table. Periodically re-probes known companies.
 
-Retries / backoff are handled naively (log-and-continue); for serious production use you’d likely introduce a queue and better error handling.
+```sh
+make run-discovery
+# or: cargo run --bin career-watch-discovery
+```
+
+**Pipeline:**
+
+1. Fetch company leads from seed sources (static list, GitHub orgs, startup directories).
+2. Insert new companies into `companies` (deduplicated by domain).
+3. Probe each pending company — tries `/careers`, `/jobs`, `/join-us`, and 12 other common paths.
+4. Detects the ATS platform (Greenhouse, Lever, Workday, Ashby, SmartRecruiters, etc.).
+5. Validates that the page actually contains job listings.
+6. Re-probes active companies whose `last_probed_at` is older than 24 hours.
+
+**Cron example:**
+
+```cron
+0 */6 * * * cd /path/to/career-watch && ./career-watch-discovery >> /var/log/career-watch-discovery.log 2>&1
+```
+
+---
+
+## Test server
+
+A fake career page server for local end-to-end testing. It serves realistic HTML that the scraper, validator, and platform detector all understand. Job listings are held in memory and can be mutated at runtime via an admin API.
+
+### Start
+
+```sh
+make run-test-server
+# Career page:  http://localhost:9090/careers
+# Admin UI:     http://localhost:9090/admin
+```
+
+### End-to-end walkthrough
+
+```sh
+# 1. Start infra + API (separate terminals)
+make up
+make run-api
+make run-test-server
+
+# 2. Create a watcher pointing at the test server
+make test-watcher
+# (uses TEST_EMAIL=test@localhost by default — override with TEST_EMAIL=you@example.com make test-watcher)
+
+# 3. First worker run — establishes baseline, no email
+make run-worker
+
+# 4. Trigger a change
+make test-add-job    # adds "Staff Engineer"
+# or:
+make test-rm-job     # removes "Senior Rust Engineer"
+
+# 5. Second worker run — detects the change, sends email
+make run-worker
+
+# 6. View the email
+open http://localhost:8025
+```
+
+### Admin API
+
+| Method   | Path                     | Description                     |
+|----------|--------------------------|---------------------------------|
+| `GET`    | `/admin/jobs`            | List current jobs (JSON)        |
+| `POST`   | `/admin/jobs`            | Add a job                       |
+| `DELETE` | `/admin/jobs/:slug`      | Remove a job by slug            |
+| `POST`   | `/admin/reset`           | Reset to default job listings   |
+
+**Add a job:**
+
+```sh
+curl -s -X POST http://localhost:9090/admin/jobs \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "title": "Staff Engineer",
+    "department": "Platform",
+    "location": "Remote",
+    "job_type": "Full-time"
+  }'
+```
+
+**Remove a job** (slug = title lowercased, spaces replaced with `-`):
+
+```sh
+curl -s -X DELETE http://localhost:9090/admin/jobs/senior-rust-engineer
+```
+
+**Reset to defaults:**
+
+```sh
+curl -s -X POST http://localhost:9090/admin/reset
+```
+
+### HTML structure
+
+The test server renders job cards that match the scraper's expectations exactly:
+
+```html
+<div class="job-card" data-job-id="senior-rust-engineer" data-posted="2025-01-01T00:00:00Z">
+  <h3 class="job-title">Senior Rust Engineer</h3>
+  <div class="job-meta">
+    <span class="job-department">Engineering</span>
+    <span class="job-location">Remote</span>
+    <span class="job-type">Full-time</span>
+  </div>
+  <a href="/careers/senior-rust-engineer/apply" class="apply-link">Apply now</a>
+</div>
+```
+
+Recommended `job_selector` when creating a watcher against the test server:
+
+```
+div.job-card h3.job-title
+```
+
+This targets only the title text, giving clean job names in the diff email. Using `div.job-card` instead would include department/location/type text in the title string.
+
+---
+
+## Database schema
+
+Migrations live in `migrations/` and run automatically on startup.
+
+### `watchers` — user-managed subscriptions
+
+| Column           | Type          | Description                                      |
+|------------------|---------------|--------------------------------------------------|
+| `id`             | `UUID`        | Primary key                                      |
+| `company_name`   | `TEXT`        | Display name                                     |
+| `url`            | `TEXT`        | Career page URL to monitor                       |
+| `email`          | `TEXT`        | Notification recipient                           |
+| `last_hash`      | `TEXT`        | SHA-256 of last fetched page                     |
+| `last_checked_at`| `TIMESTAMPTZ` | Timestamp of last successful check               |
+| `created_at`     | `TIMESTAMPTZ` | Row creation time                                |
+| `active`         | `BOOLEAN`     | Soft-delete flag                                 |
+| `last_jobs_json` | `JSONB`       | Snapshot of last extracted job listings          |
+| `job_selector`   | `TEXT`        | CSS selector for structured job extraction       |
+
+### `companies` — auto-discovered companies
+
+| Column          | Type          | Description                                       |
+|-----------------|---------------|---------------------------------------------------|
+| `id`            | `UUID`        | Primary key                                       |
+| `name`          | `TEXT`        | Company name                                      |
+| `domain`        | `TEXT UNIQUE` | Bare domain, e.g. `stripe.com`                    |
+| `source`        | `TEXT`        | Where this lead came from                         |
+| `career_url`    | `TEXT`        | Resolved career page URL after probing            |
+| `platform`      | `TEXT`        | ATS platform: `greenhouse`, `lever`, `workday`, … |
+| `platform_id`   | `TEXT`        | Company slug on the ATS platform                  |
+| `status`        | `TEXT`        | `pending` → `active` or `failed`                  |
+| `probe_error`   | `TEXT`        | Last error when `status = 'failed'`               |
+| `created_at`    | `TIMESTAMPTZ` | Row creation time                                 |
+| `last_probed_at`| `TIMESTAMPTZ` | Timestamp of last probe attempt                   |
+
+---
+
+## Project layout
+
+```
+src/
+  main.rs                   API server entrypoint
+  lib.rs                    Shared library (AppState, module exports)
+  config.rs                 Environment config loading
+  models.rs                 DB and API data models
+  db.rs                     Database connection pool
+  scraper.rs                HTTP fetching, SHA-256 hashing, CSS-based job extraction
+  email.rs                  SMTP email client and notification templates
+  routes/
+    mod.rs                  Router setup
+    health.rs               GET /healthz
+    watches.rs              CRUD handlers for /api/watches
+  discovery/
+    mod.rs                  Pipeline overview and module exports
+    platform.rs             ATS platform detection (URL + HTML signatures)
+    validator.rs            Job listing page validation
+    prober.rs               Career path prober (probes /careers, /jobs, etc.)
+    sources.rs              Seed source trait + implementations
+    scheduler.rs            Discovery queue, dedup, bounded-concurrency probing
+  bin/
+    worker.rs               career-watch-worker binary
+    discovery_worker.rs     career-watch-discovery binary
+    test_server.rs          career-watch-test-server binary
+
+migrations/
+  0001_init.sql             watchers table
+  0002_jobs_snapshot.sql    last_jobs_json and job_selector columns
+  0003_discovery.sql        companies table
+
+scripts/
+  db-reset.sh               Drop, recreate, and migrate the local database
+
+docker-compose.yml          Postgres + Mailpit + optional app containers
+Dockerfile                  Multi-stage build for all three binaries
+Makefile                    Development task runner
+Caddyfile                   Example Caddy reverse proxy config
+.env.example                Environment variable template
+```
 
 ---
 
 ## Caddy reverse proxy
 
-An example `Caddyfile` is provided for local development:
+An example `Caddyfile` is included for local development with a custom hostname:
 
-```Caddyfile
+```
 career-watch.localhost {
     reverse_proxy /api/* 127.0.0.1:8080
-
-    @static {
-        not path /api/*
-    }
-
-    handle @static {
-        root * ./public
-        file_server
-    }
 }
 ```
 
-From the project root:
-
-```bash
+```sh
 caddy run
+# API at http://career-watch.localhost/api/...
 ```
-
-Then access the API at `http://career-watch.localhost/api/...`.
 
 ---
 
 ## Testing
 
-Run all tests:
-
-```bash
-cargo test
+```sh
+make test
+# or: cargo test
 ```
 
-Current tests cover:
-
-- `AppConfig` env parsing and defaults.
-- Page hashing behavior (`hash_body`).
-- A router smoke-test to ensure the API router can be constructed.
+Tests cover config parsing, page hashing, job extraction, job diffing, platform detection, page validation, and domain extraction from URLs.
 
 ---
 
 ## Notes / future work
 
-Some obvious next steps if you want to grow this into a real SaaS:
-
 - Add authentication and per-user ownership of watches.
-- Add a small web UI for listing and managing watches.
-- Add structured logging and metrics (e.g., Prometheus).
-- Introduce a real job queue (Redis, SQS, etc.) instead of relying solely on cron.
-
+- Add a web UI for managing watches.
+- Promote auto-discovered companies in `companies` to user-subscribed `watchers`.
+- Add structured logging / Prometheus metrics.
+- Replace cron with a persistent job queue (Redis, SQS, etc.) for more reliable scheduling.

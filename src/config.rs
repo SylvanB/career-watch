@@ -14,6 +14,9 @@ pub struct AppConfig {
     pub smtp_user: String,
     pub smtp_pass: String,
     pub smtp_from: String,
+    /// When `false`, connects with no TLS (plain SMTP). Use for local dev
+    /// with Mailpit. Defaults to `true` for production SMTP providers.
+    pub smtp_tls: bool,
 }
 
 impl AppConfig {
@@ -40,6 +43,11 @@ impl AppConfig {
         let smtp_from =
             env::var("SMTP_FROM").map_err(|_| anyhow::anyhow!("SMTP_FROM must be set"))?;
 
+        let smtp_tls = env::var("SMTP_TLS")
+            .unwrap_or_else(|_| "true".to_string())
+            .to_lowercase()
+            != "false";
+
         Ok(Self {
             database_url,
             bind_addr,
@@ -48,6 +56,7 @@ impl AppConfig {
             smtp_user,
             smtp_pass,
             smtp_from,
+            smtp_tls,
         })
     }
 }
@@ -73,6 +82,7 @@ mod tests {
             "SMTP_USER",
             "SMTP_PASS",
             "SMTP_FROM",
+            "SMTP_TLS",
         ] {
             env::remove_var(key);
         }

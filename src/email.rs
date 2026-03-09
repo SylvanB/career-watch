@@ -23,13 +23,29 @@ impl EmailClient {
     ///
     /// This validates SMTP host/port, credentials, and the `SMTP_FROM` address.
     pub fn from_config(config: &AppConfig) -> anyhow::Result<Self> {
+        // Only attach credentials when they are actually provided — Mailpit
+        // and other dev SMTP servers accept unauthenticated connections.
+        let has_creds = !config.smtp_user.is_empty();
         let creds = Credentials::new(config.smtp_user.clone(), config.smtp_pass.clone());
 
-        let mailer = AsyncSmtpTransport::<Tokio1Executor>::relay(&config.smtp_host)
-            .context("failed to configure SMTP relay")?
-            .port(config.smtp_port)
-            .credentials(creds)
-            .build();
+        let mailer = if config.smtp_tls {
+            // Production: STARTTLS on port 587 (or whatever SMTP_PORT is set to).
+            let mut b = AsyncSmtpTransport::<Tokio1Executor>::relay(&config.smtp_host)
+                .context("failed to configure SMTP relay")?
+                .port(config.smtp_port);
+            if has_creds {
+                b = b.credentials(creds);
+            }
+            b.build()
+        } else {
+            // Local dev (Mailpit): plain SMTP, no TLS.
+            let mut b = AsyncSmtpTransport::<Tokio1Executor>::builder_dangerous(&config.smtp_host)
+                .port(config.smtp_port);
+            if has_creds {
+                b = b.credentials(creds);
+            }
+            b.build()
+        };
 
         let from: Mailbox = config
             .smtp_from
