@@ -93,7 +93,7 @@ import App from '../layouts/App.astro';
                   target="_blank"
                   rel="noopener"
                   class="text-xs text-gray-400 hover:text-brand-600 truncate max-w-xs block transition-colors"
-                  x-text="w.url.replace(/^https?:\/\//, '')"
+                  x-text="w.url.replace('https://', '').replace('http://', '')"
                 ></a>
               </td>
               <td class="px-6 py-4 hidden md:table-cell">
