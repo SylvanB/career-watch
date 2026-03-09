@@ -158,28 +158,34 @@ async fn probe_one(db: &PgPool, prober: &CareerProber, company: &CompanyRow) -> 
     match prober.probe_domain(&company.domain).await {
         Some(result) => {
             info!(
-                domain = %company.domain,
-                url = %result.url,
-                platform = result.platform.as_str(),
-                jobs = result.job_count_estimate,
+                domain     = %company.domain,
+                url        = %result.url,
+                platform   = result.platform.as_str(),
+                score      = result.score,
+                source     = result.source,
+                jobs       = result.job_count_estimate,
                 "career page found"
             );
 
             sqlx::query(
                 r#"
                 UPDATE companies
-                SET status        = 'active',
-                    career_url    = $1,
-                    platform      = $2,
-                    platform_id   = $3,
-                    last_probed_at = $4,
-                    probe_error   = NULL
-                WHERE id = $5
+                SET status           = 'active',
+                    career_url       = $1,
+                    platform         = $2,
+                    platform_id      = $3,
+                    probe_confidence = $4,
+                    probe_source     = $5,
+                    last_probed_at   = $6,
+                    probe_error      = NULL
+                WHERE id = $7
                 "#,
             )
             .bind(&result.url)
             .bind(result.platform.as_str())
             .bind(result.platform_id.as_deref())
+            .bind(result.score as i16)
+            .bind(result.source)
             .bind(Utc::now())
             .bind(company.id)
             .execute(db)

@@ -108,7 +108,7 @@ pub async fn list_companies(
           AND c.career_url IS NOT NULL
           AND ($2::text IS NULL OR c.name ILIKE '%' || $2 || '%')
           AND ($3::text IS NULL OR c.platform = $3)
-        ORDER BY c.name ASC
+        ORDER BY c.probe_confidence DESC NULLS LAST, c.name ASC
         LIMIT $4 OFFSET $5
         "#,
     )
