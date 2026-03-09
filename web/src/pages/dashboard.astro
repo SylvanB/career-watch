@@ -420,11 +420,16 @@ import App from '../layouts/App.astro';
             if (res.ok) {
               this.testResult = await res.json();
             } else {
-              const d = await res.json();
-              this.testError = d.error || 'Test failed.';
+              // Defensively parse the error — the body might not be JSON
+              let msg = `Server returned ${res.status}`;
+              try { const d = await res.json(); msg = d.error || msg; } catch {}
+              this.testError = msg;
             }
-          } catch {
-            this.testError = 'Could not reach the server.';
+          } catch (e) {
+            // fetch() itself threw — surface the real JS error message
+            this.testError = e?.message
+              ? `Request failed: ${e.message}`
+              : 'Could not reach the server — is the API running?';
           } finally {
             this.testLoading = false;
           }
