@@ -6,6 +6,8 @@
 //! - **Protected** — requires session cookie (`/api/*`)
 //! - **Admin**     — requires `Authorization: Bearer {ADMIN_SECRET}` (`/admin/*`)
 
+use std::time::Duration;
+
 use axum::{
     middleware,
     routing::{delete, get, patch, post},
@@ -14,6 +16,7 @@ use axum::{
 use tower_http::trace::TraceLayer;
 
 use crate::auth::middleware::{require_admin, require_auth};
+use crate::rate_limit::{rate_limit, RateLimiter};
 use crate::routes::{
     admin::{get_user, list_users, patch_user_tier},
     auth::{forgot_password, login, logout, register, reset_password, verify_email},
@@ -35,15 +38,21 @@ pub mod watches;
 
 /// Construct the root router with all route groups and middleware applied.
 pub fn router(state: AppState) -> Router {
+    // Rate limiter for auth endpoints: 10 requests per minute per IP.
+    // Shared across all auth routes so login + register + forgot-password
+    // together are bounded.
+    let auth_limiter = RateLimiter::new(10, Duration::from_secs(60));
+
     let public = Router::new()
         .route("/healthz", get(health))
-        // Auth
+        // Auth (rate-limited)
         .route("/auth/register", post(register))
         .route("/auth/login", post(login))
         .route("/auth/logout", post(logout))
         .route("/auth/verify-email", post(verify_email))
         .route("/auth/forgot-password", post(forgot_password))
         .route("/auth/reset-password", post(reset_password))
+        .layer(middleware::from_fn_with_state(auth_limiter, rate_limit))
         // Stripe webhook — no session auth, uses Stripe signature verification
         .route("/billing/webhook", post(stripe_webhook));
 

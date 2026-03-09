@@ -157,7 +157,7 @@ async fn run_once(
             None => false,
             Some(ref existing) => existing != &new_hash,
         } || !added_jobs.is_empty()
-            || !removed_jobs.is_empty();
+          || !removed_jobs.is_empty();
 
         if should_notify {
             if !watch.email.is_empty() {

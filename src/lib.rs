@@ -7,6 +7,7 @@ pub mod db;
 pub mod discovery;
 pub mod email;
 pub mod models;
+pub mod rate_limit;
 pub mod routes;
 pub mod scraper;
 

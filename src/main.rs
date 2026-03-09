@@ -23,6 +23,15 @@ async fn main() -> anyhow::Result<()> {
         .init();
 
     let config = AppConfig::from_env()?;
+
+    // Refuse to start in production with default insecure values.
+    if config.cookie_secure && config.admin_secret == "change-me-in-production" {
+        anyhow::bail!(
+            "ADMIN_SECRET must be changed from the default value before running in production. \
+             Set COOKIE_SECURE=false to suppress this check in local dev."
+        );
+    }
+
     let db = create_pool(&config.database_url).await?;
     sqlx::migrate!().run(&db).await?;
 

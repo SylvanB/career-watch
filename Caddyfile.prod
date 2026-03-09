@@ -1,0 +1,27 @@
+# Production Caddyfile
+# Replace your-domain.com with your actual domain.
+# Caddy provisions TLS via Let's Encrypt automatically.
+
+your-domain.com {
+    # Serve the built Astro frontend
+    root * /srv/www
+    file_server
+    try_files {path} /index.html
+
+    # Proxy API and auth routes to the Rust backend container
+    handle /api/*      { reverse_proxy api:8080 }
+    handle /auth/*     { reverse_proxy api:8080 }
+    handle /billing/*  { reverse_proxy api:8080 }
+    handle /admin/*    { reverse_proxy api:8080 }
+    handle /healthz    { reverse_proxy api:8080 }
+
+    # Security headers
+    header {
+        Strict-Transport-Security "max-age=31536000; includeSubDomains"
+        X-Content-Type-Options "nosniff"
+        X-Frame-Options "DENY"
+        Referrer-Policy "strict-origin-when-cross-origin"
+    }
+
+    encode gzip
+}

@@ -8,6 +8,7 @@ use serde_json::Value;
 use sqlx::PgPool;
 use tracing::{info, warn};
 
+use crate::email::EmailClient;
 use crate::models::SubscriptionTier;
 
 /// Record and process a verified Stripe webhook event.
@@ -16,11 +17,13 @@ use crate::models::SubscriptionTier;
 /// skip), `Ok(true)` on successful first processing.
 pub async fn handle_event(
     db: &PgPool,
+    email: &EmailClient,
     event_id: &str,
     event_type: &str,
     data: &Value,
     price_pro: &str,
     price_business: &str,
+    app_base_url: &str,
 ) -> Result<bool> {
     // Idempotency: skip already-processed events.
     let already_seen = sqlx::query_scalar::<_, bool>(
@@ -47,16 +50,18 @@ pub async fn handle_event(
     .execute(db)
     .await?;
 
-    dispatch_event(db, event_type, data, price_pro, price_business).await?;
+    dispatch_event(db, email, event_type, data, price_pro, price_business, app_base_url).await?;
     Ok(true)
 }
 
 async fn dispatch_event(
     db: &PgPool,
+    email: &EmailClient,
     event_type: &str,
     data: &Value,
     price_pro: &str,
     price_business: &str,
+    app_base_url: &str,
 ) -> Result<()> {
     match event_type {
         "customer.subscription.created" | "customer.subscription.updated" => {
@@ -113,6 +118,7 @@ async fn dispatch_event(
 
         "invoice.payment_failed" => {
             let customer_id = data["object"]["customer"].as_str().unwrap_or("");
+
             sqlx::query(
                 "UPDATE users SET subscription_status = 'past_due', updated_at = now()
                  WHERE stripe_customer_id = $1",
@@ -120,7 +126,25 @@ async fn dispatch_event(
             .bind(customer_id)
             .execute(db)
             .await?;
+
             warn!(customer_id, "invoice payment failed, marked past_due");
+
+            // Notify the user so they can update their payment method.
+            let user_email = sqlx::query_scalar::<_, String>(
+                "SELECT email FROM users WHERE stripe_customer_id = $1",
+            )
+            .bind(customer_id)
+            .fetch_optional(db)
+            .await
+            .ok()
+            .flatten();
+
+            if let Some(addr) = user_email {
+                let portal_url = format!("{}/account", app_base_url);
+                if let Err(e) = email.send_payment_failed_email(&addr, &portal_url).await {
+                    warn!(customer_id, "failed to send payment failed email: {e}");
+                }
+            }
         }
 
         "invoice.payment_succeeded" => {
@@ -149,6 +173,6 @@ fn tier_for_price(price_id: &str, price_pro: &str, price_business: &str) -> Subs
     } else if !price_pro.is_empty() && price_id == price_pro {
         SubscriptionTier::Pro
     } else {
-        SubscriptionTier::Pro // default paid tier if price not recognised
+        SubscriptionTier::Pro
     }
 }

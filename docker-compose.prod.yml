@@ -1,0 +1,83 @@
+services:
+
+  # ── Infrastructure ──────────────────────────────────────────────────────────
+
+  postgres:
+    image: postgres:16-alpine
+    restart: always
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-career_watch}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set}
+      POSTGRES_DB: ${POSTGRES_DB:-career_watch}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-career_watch}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ── Application ─────────────────────────────────────────────────────────────
+
+  api:
+    build:
+      context: .
+      target: api
+    image: career-watch-api:latest
+    restart: always
+    env_file: .env.prod
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:8080/healthz || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+
+  worker:
+    build:
+      context: .
+      target: worker
+    image: career-watch-worker:latest
+    restart: "no"
+    env_file: .env.prod
+    profiles: ["cron"]   # started explicitly by cron, not as a daemon
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  discovery:
+    build:
+      context: .
+      target: discovery
+    image: career-watch-discovery:latest
+    restart: "no"
+    env_file: .env.prod
+    profiles: ["cron"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  # ── Reverse proxy + TLS ─────────────────────────────────────────────────────
+
+  caddy:
+    image: caddy:2-alpine
+    restart: always
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile.prod:/etc/caddy/Caddyfile:ro
+      - ./web/dist:/srv/www:ro       # built frontend
+      - caddy_data:/data             # TLS certificates (persisted)
+      - caddy_config:/config
+    depends_on:
+      api:
+        condition: service_healthy
+
+volumes:
+  postgres_data:
+  caddy_data:
+  caddy_config:

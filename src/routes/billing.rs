@@ -170,11 +170,13 @@ pub async fn stripe_webhook(
 
     match handle_event(
         &state.db,
+        &state.email,
         event_id,
         event_type,
         data,
         &state.config.stripe_price_pro,
         &state.config.stripe_price_business,
+        &state.config.app_base_url,
     )
     .await
     {
