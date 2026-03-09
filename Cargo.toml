@@ -11,6 +11,14 @@ path = "src/main.rs"
 name = "career-watch-worker"
 path = "src/bin/worker.rs"
 
+[[bin]]
+name = "career-watch-discovery"
+path = "src/bin/discovery_worker.rs"
+
+[[bin]]
+name = "career-watch-test-server"
+path = "src/bin/test_server.rs"
+
 [dependencies]
 axum = { version = "0.7", features = ["macros"] }
 tokio = { version = "1.41", features = ["full"] }
@@ -31,6 +39,8 @@ url = "2.5"
 tower-http = { version = "0.5", features = ["trace"] }
 home = "=0.5.9"
 scraper = "0.19"
+async-trait = "0.1"
+futures = "0.3"
 
 [dev-dependencies]
 tokio = { version = "1.41", features = ["full"] }

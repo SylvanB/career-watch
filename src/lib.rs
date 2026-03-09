@@ -5,6 +5,7 @@
 
 pub mod config;
 pub mod db;
+pub mod discovery;
 pub mod email;
 pub mod models;
 pub mod routes;
