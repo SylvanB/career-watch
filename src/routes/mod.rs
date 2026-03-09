@@ -26,7 +26,7 @@ use crate::routes::{
     health::health,
     me::me,
     notifications::{list_notifications, mark_all_read},
-    watches::{create_watch, delete_watch, list_watches},
+    watches::{create_watch, delete_watch, list_watches, update_watch},
 };
 use crate::AppState;
 
@@ -70,7 +70,7 @@ pub fn router(state: AppState) -> Router {
         .route("/api/notifications", get(list_notifications))
         .route("/api/notifications/read-all", post(mark_all_read))
         .route("/api/watches", get(list_watches).post(create_watch))
-        .route("/api/watches/:id", delete(delete_watch))
+        .route("/api/watches/:id", delete(delete_watch).patch(update_watch))
         .route("/billing/checkout", post(create_checkout))
         .route("/billing/portal", post(create_portal))
         .layer(middleware::from_fn_with_state(state.clone(), require_auth));

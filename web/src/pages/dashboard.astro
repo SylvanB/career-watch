@@ -126,12 +126,16 @@ import App from '../layouts/App.astro';
                 <span x-show="!w.job_selector" class="text-xs text-gray-300">—</span>
               </td>
               <td class="px-6 py-4 text-right">
-                <button
-                  @click="deleteWatcher(w.id, w.company_name)"
-                  class="text-xs text-gray-400 hover:text-red-600 transition-colors font-medium"
-                >
-                  Remove
-                </button>
+                <div class="flex items-center justify-end gap-3">
+                  <button
+                    @click="openEdit(w)"
+                    class="text-xs text-gray-400 hover:text-brand-600 transition-colors font-medium"
+                  >Edit</button>
+                  <button
+                    @click="deleteWatcher(w.id, w.company_name)"
+                    class="text-xs text-gray-400 hover:text-red-600 transition-colors font-medium"
+                  >Remove</button>
+                </div>
               </td>
             </tr>
           </template>
@@ -199,6 +203,72 @@ import App from '../layouts/App.astro';
       </div>
     </div>
 
+    <!-- ── Edit watcher modal ── -->
+    <div
+      x-show="showEditModal"
+      x-transition.opacity
+      class="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4"
+      @keydown.escape.window="showEditModal = false"
+    >
+      <div class="card w-full max-w-md p-8" @click.outside="showEditModal = false">
+        <div class="mb-6 flex items-center justify-between">
+          <div>
+            <h2 class="text-lg font-semibold text-gray-900">Edit watcher</h2>
+            <p class="mt-0.5 text-sm text-gray-500" x-text="editTarget?.company_name"></p>
+          </div>
+          <button @click="showEditModal = false" class="text-gray-400 hover:text-gray-600">
+            <svg class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
+            </svg>
+          </button>
+        </div>
+
+        <div x-show="editError" class="alert-error mb-4 text-xs" x-text="editError"></div>
+
+        <form @submit.prevent="saveEdit()" class="space-y-4">
+          <div>
+            <label class="label" for="edit-url">Career page URL</label>
+            <input id="edit-url" type="url" x-model="editForm.url" class="field"
+                   placeholder="https://boards.greenhouse.io/stripe" />
+          </div>
+
+          <div>
+            <label class="label" for="edit-selector">
+              CSS selector
+              <span class="font-normal text-gray-400">(leave blank for hash-only mode)</span>
+            </label>
+            <input id="edit-selector" type="text" x-model="editForm.job_selector"
+                   class="field font-mono text-xs"
+                   placeholder="div.opening a" />
+            <div class="mt-2 space-y-1">
+              <p class="text-xs text-gray-400">Common selectors by platform:</p>
+              <div class="flex flex-wrap gap-1">
+                <template x-for="[label, sel] in selectorHints()" :key="label">
+                  <button type="button"
+                    @click="editForm.job_selector = sel"
+                    class="rounded bg-gray-100 px-2 py-0.5 font-mono text-[10px] text-gray-600 hover:bg-brand-50 hover:text-brand-700 transition-colors">
+                    <span class="font-sans not-italic text-gray-400 mr-1" x-text="label + ':'"></span><span x-text="sel"></span>
+                  </button>
+                </template>
+              </div>
+            </div>
+          </div>
+
+          <div class="alert-info text-xs">
+            Saving resets the baseline — the next worker run will re-establish
+            what "current" looks like with the new selector.
+          </div>
+
+          <div class="flex gap-3 pt-2">
+            <button type="submit" class="btn-primary flex-1" :disabled="editLoading">
+              <span x-text="editLoading ? 'Saving…' : 'Save changes'"></span>
+            </button>
+            <button type="button" @click="showEditModal = false" class="btn-secondary">Cancel</button>
+          </div>
+        </form>
+      </div>
+    </div>
+
   </div>
 
   <script is:inline>
@@ -211,6 +281,11 @@ import App from '../layouts/App.astro';
         newWatcher: { company_name: '', url: '', job_selector: '' },
         addError: '',
         addLoading: false,
+        showEditModal: false,
+        editTarget: null,
+        editForm: { url: '', job_selector: '' },
+        editError: '',
+        editLoading: false,
 
         async init() {
           // Wait for the app shell to load the user
@@ -262,6 +337,51 @@ import App from '../layouts/App.astro';
           if (!confirm(`Remove watcher for "${name}"?`)) return;
           await fetch(`/api/watches/${id}`, { method: 'DELETE' });
           await this.loadWatchers();
+        },
+
+        openEdit(w) {
+          this.editTarget = w;
+          this.editForm   = { url: w.url, job_selector: w.job_selector || '' };
+          this.editError  = '';
+          this.showEditModal = true;
+        },
+
+        async saveEdit() {
+          this.editError  = '';
+          this.editLoading = true;
+          try {
+            const body = {
+              url:          this.editForm.url || null,
+              job_selector: this.editForm.job_selector || null,
+            };
+            const res = await fetch(`/api/watches/${this.editTarget.id}`, {
+              method: 'PATCH',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(body),
+            });
+            if (res.ok) {
+              this.showEditModal = false;
+              await this.loadWatchers();
+            } else {
+              const d = await res.json();
+              this.editError = d.error || 'Failed to save.';
+            }
+          } catch {
+            this.editError = 'Could not reach the server.';
+          } finally {
+            this.editLoading = false;
+          }
+        },
+
+        // Quick-pick selector hints shown inside the edit modal
+        selectorHints() {
+          return [
+            ['Greenhouse', 'div.opening a'],
+            ['Lever',      'div.posting h5'],
+            ['SmartRecr.', '.job-list-item h4'],
+            ['Generic',    '.job-card h3'],
+            ['Generic',    '[data-job-id]'],
+          ];
         },
 
         get atLimit() {

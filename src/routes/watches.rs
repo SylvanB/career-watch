@@ -8,6 +8,7 @@ use axum::{
     http::StatusCode,
     Extension, Json,
 };
+use serde::Deserialize;
 use uuid::Uuid;
 use url::Url;
 
@@ -119,6 +120,64 @@ pub async fn create_watch(
     }
 
     Ok((StatusCode::CREATED, Json(row.into())))
+}
+
+/// Update a watcher's URL and/or CSS selector.
+///
+/// Resets `last_hash` and `last_jobs_json` so the next worker run
+/// establishes a fresh baseline rather than sending a spurious diff.
+pub async fn update_watch(
+    State(state): State<AppState>,
+    Extension(user): Extension<AuthUser>,
+    Path(id): Path<Uuid>,
+    Json(payload): Json<UpdateWatchRequest>,
+) -> Result<Json<Watch>, (StatusCode, Json<serde_json::Value>)> {
+    fn err(s: StatusCode, msg: &str) -> (StatusCode, Json<serde_json::Value>) {
+        (s, Json(serde_json::json!({"error": msg})))
+    }
+
+    // Validate URL if provided
+    if let Some(ref url) = payload.url {
+        if Url::parse(url).is_err() {
+            return Err(err(StatusCode::BAD_REQUEST, "invalid URL"));
+        }
+    }
+
+    let row: WatchRow = sqlx::query_as::<_, WatchRow>(
+        r#"
+        UPDATE watchers
+        SET url           = COALESCE($1, url),
+            job_selector  = $2,
+            -- reset baseline so the worker doesn't fire a spurious diff
+            last_hash     = NULL,
+            last_jobs_json = NULL,
+            last_checked_at = NULL
+        WHERE id = $3 AND user_id = $4 AND active = true
+        RETURNING id, company_name, url, email, last_hash, last_checked_at,
+                  created_at, active, last_jobs_json, job_selector, user_id, company_id
+        "#,
+    )
+    .bind(payload.url.as_deref())
+    .bind(payload.job_selector.as_deref())   // NULL clears the selector
+    .bind(id)
+    .bind(user.id)
+    .fetch_optional(&state.db)
+    .await
+    .map_err(|_| err(StatusCode::INTERNAL_SERVER_ERROR, "internal error"))?
+    .ok_or_else(|| err(StatusCode::NOT_FOUND, "watcher not found"))?;
+
+    Ok(Json(row.into()))
+}
+
+#[derive(Deserialize)]
+pub struct UpdateWatchRequest {
+    /// New URL. `None` = keep existing.
+    pub url: Option<String>,
+    /// New CSS selector. `None` = clear (reverts to hash-only mode).
+    /// Pass an explicit `null` in JSON to clear, or omit to keep existing —
+    /// but since JSON `null` and missing field both deserialise to `None`,
+    /// the API treats `None` as "clear". Use `PATCH` only when you intend to change.
+    pub job_selector: Option<String>,
 }
 
 /// Soft-delete a watcher. Only the owning user may delete their own watchers.
