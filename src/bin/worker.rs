@@ -98,6 +98,13 @@ async fn run_once(
     for watch in watches {
         let now = Utc::now();
 
+        tracing::info!(
+            company  = watch.company_name,
+            has_selector  = watch.job_selector.is_some(),
+            has_company_id = watch.company_id.is_some(),
+            "processing watcher"
+        );
+
         let (new_hash, added_jobs, removed_jobs, new_jobs_snapshot) =
             match &watch.job_selector {
                 Some(selector) if !selector.trim().is_empty() => {
@@ -118,6 +125,14 @@ async fn run_once(
                         }
                     };
 
+                    tracing::info!(
+                        company  = watch.company_name,
+                        selector = selector.as_str(),
+                        extracted = new_jobs.len(),
+                        previous  = old_jobs.len(),
+                        "job extraction complete"
+                    );
+
                     let (added, removed) = diff_jobs(&old_jobs, &new_jobs);
 
                     let hash = match scraper.fetch_hash(&watch.url).await {
@@ -131,6 +146,7 @@ async fn run_once(
                     (hash, added, removed, Some(new_jobs))
                 }
                 _ => {
+                    tracing::info!(company = watch.company_name, "no selector set — hash-only mode, skipping job tracking");
                     let new_hash = match scraper.fetch_hash(&watch.url).await {
                         Ok(h) => h,
                         Err(err) => {
@@ -189,15 +205,31 @@ async fn run_once(
         }
 
         // ── Job tracking (analytics layer) ────────────────────────────────────
-        // Only runs for catalog-discovered watchers with a job selector.
-        if let (Some(company_id), Some(current_jobs)) = (watch.company_id, &new_jobs_snapshot) {
-            if let Err(e) = track_jobs(pool, company_id, current_jobs, &removed_jobs, now).await {
-                tracing::warn!(company_id = %company_id, "job tracking failed: {e}");
+        match (&watch.company_id, &new_jobs_snapshot) {
+            (Some(company_id), Some(current_jobs)) => {
+                tracing::info!(
+                    company    = watch.company_name,
+                    company_id = %company_id,
+                    jobs       = current_jobs.len(),
+                    "tracking jobs"
+                );
+                if let Err(e) = track_jobs(pool, *company_id, current_jobs, &removed_jobs, now).await {
+                    tracing::warn!(company = watch.company_name, "job tracking failed: {e}");
+                } else {
+                    tracing::info!(company = watch.company_name, jobs = current_jobs.len(), "jobs upserted");
+                }
+                let today = now.date_naive();
+                if let Err(e) = upsert_daily_snapshot(pool, *company_id, today).await {
+                    tracing::warn!(company = watch.company_name, "snapshot update failed: {e}");
+                }
             }
-            let today = now.naive_utc().into();
-            if let Err(e) = upsert_daily_snapshot(pool, company_id, today).await {
-                tracing::warn!(company_id = %company_id, "snapshot update failed: {e}");
+            (None, Some(_)) => {
+                tracing::info!(company = watch.company_name, "skipping job tracking: no company_id (custom watcher)");
             }
+            (Some(_), None) => {
+                tracing::info!(company = watch.company_name, "skipping job tracking: no job_selector");
+            }
+            _ => {}
         }
 
         let jobs_json: Option<Json<Vec<JobPosting>>> = new_jobs_snapshot.map(Json);
@@ -238,6 +270,13 @@ async fn track_jobs(
     removed_jobs: &[JobPosting],
     now: chrono::DateTime<Utc>,
 ) -> anyhow::Result<()> {
+    tracing::info!(
+        company_id = %company_id,
+        current    = current_jobs.len(),
+        removed    = removed_jobs.len(),
+        "track_jobs called"
+    );
+
     // Upsert every job in the current listing
     for job in current_jobs {
         let hash = job_hash(company_id, &job.title, job.location.as_deref());
