@@ -31,12 +31,16 @@ pub struct AppConfig {
     /// Whether to set the `Secure` flag on session cookies.
     /// Set to `false` for local HTTP dev; always `true` in production.
     pub cookie_secure: bool,
-    /// Ollama base URL for local LLM selector detection.
-    /// Leave blank to disable LLM-assisted selector detection.
+    /// Ollama base URL. Leave blank to disable all LLM features.
     pub ollama_host: String,
-    /// Ollama model to use for selector detection.
-    /// Recommended: qwen2.5:3b or jinaai/reader-lm-v2
+    /// Model for discovery — selector detection + URL hints.
+    /// Needs general reasoning ability. Recommended: qwen2.5:3b
     pub ollama_model: String,
+    /// Model for worker job extraction — HTML → structured JSON.
+    /// ReaderLM-v2 is purpose-built for this and beats 32B models.
+    /// Defaults to ollama_model if not set.
+    /// Recommended: GFalcon-UA/ReaderLM-v2:Q8
+    pub ollama_extraction_model: String,
 }
 
 impl AppConfig {
@@ -79,6 +83,9 @@ impl AppConfig {
             .unwrap_or_else(|_| "http://localhost:11434".to_string());
         let ollama_model = env::var("OLLAMA_MODEL")
             .unwrap_or_else(|_| "qwen2.5:3b".to_string());
+        // Extraction model defaults to the general model if not explicitly set.
+        let ollama_extraction_model = env::var("OLLAMA_EXTRACTION_MODEL")
+            .unwrap_or_else(|_| ollama_model.clone());
 
         Ok(Self {
             database_url,
@@ -98,6 +105,7 @@ impl AppConfig {
             cookie_secure,
             ollama_host,
             ollama_model,
+            ollama_extraction_model,
         })
     }
 }

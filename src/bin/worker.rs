@@ -49,7 +49,7 @@ async fn main() -> anyhow::Result<()> {
     let email = EmailClient::from_config(&config)?;
     let scraper = PageScraper::new();
 
-    run_once(&pool, &email, &scraper, &config.ollama_host, &config.ollama_model).await?;
+    run_once(&pool, &email, &scraper, &config.ollama_host, &config.ollama_extraction_model).await?;
 
     Ok(())
 }

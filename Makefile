@@ -133,7 +133,8 @@ test-reset:
 
 # ── Ollama ───────────────────────────────────────────────────────────────────
 
-OLLAMA_MODEL ?= qwen2.5:3b
+OLLAMA_MODEL            ?= qwen2.5:3b
+OLLAMA_EXTRACTION_MODEL ?= GFalcon-UA/ReaderLM-v2:Q8
 
 .PHONY: ollama-up
 ollama-up:
@@ -142,8 +143,11 @@ ollama-up:
 
 .PHONY: ollama-pull
 ollama-pull:
+	@echo "Pulling discovery model: $(OLLAMA_MODEL)"
 	$(COMPOSE) exec ollama ollama pull $(OLLAMA_MODEL)
-	@echo "  Model ready: $(OLLAMA_MODEL)"
+	@echo "Pulling extraction model: $(OLLAMA_EXTRACTION_MODEL)"
+	$(COMPOSE) exec ollama ollama pull $(OLLAMA_EXTRACTION_MODEL)
+	@echo "  Models ready"
 
 # ── Frontend ─────────────────────────────────────────────────────────────────
 

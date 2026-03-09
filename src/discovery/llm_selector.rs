@@ -303,6 +303,13 @@ HTML:
 
 const DEPT_VALUES: &str = "engineering, product, sales, marketing, design, data, operations, people, finance, legal, customer_success, other";
 
+/// Returns true when the model name identifies it as a ReaderLM variant.
+/// ReaderLM uses a different prompt convention and wraps output in code fences.
+fn is_reader_lm(model: &str) -> bool {
+    let lower = model.to_lowercase();
+    lower.contains("readerlm") || lower.contains("reader-lm") || lower.contains("reader_lm")
+}
+
 /// Extract structured job listings directly from HTML using a local LLM.
 ///
 /// Returns the full list of jobs on the page including title, location,
@@ -322,32 +329,7 @@ pub async fn extract_jobs_via_llm(
     let skeleton = preprocess_html(html);
     if skeleton.len() < 100 { return Ok(Some(vec![])); }
 
-    let prompt = format!(
-        r#"Extract ALL job listings from this careers page HTML.
-
-URL: {url}
-Company: {company}
-
-Return a JSON array. Each element must have:
-- "title":      job title only (no location, no department suffix)
-- "location":   city/country or "Remote" — null if not found
-- "department":  one of [{depts}]
-- "url":        URL path or full URL to the job detail page — null if not found
-
-If no job listings are visible in the HTML, return an empty array: []
-
-Return JSON array only. No explanation. No markdown.
-
-HTML:
-{html}"#,
-        url = page_url,
-        company = company_name,
-        depts = DEPT_VALUES,
-        html = skeleton,
-    );
-
-    // Use an array schema — constrained output ensures valid JSON list.
-    let format = serde_json::json!({
+    let schema_json = serde_json::json!({
         "type": "array",
         "items": {
             "type": "object",
@@ -360,6 +342,48 @@ HTML:
             "required": ["title", "department"]
         }
     });
+
+    // ReaderLM-v2 uses a documented prompt convention:
+    //   1. Instruction sentence
+    //   2. HTML wrapped in ```html fences
+    //   3. JSON schema wrapped in ```json fences
+    // Output is also wrapped in ```json fences and must be stripped.
+    //
+    // General-purpose models (qwen2.5:3b etc) use a plain prose prompt.
+    let (prompt, format) = if is_reader_lm(model) {
+        let p = format!(
+            "Extract the specified information from the HTML and present it in a structured JSON format.\n```html\n{html}\n```\nThe JSON schema is as follows:\n```json\n{schema}\n```",
+            html   = skeleton,
+            schema = serde_json::to_string_pretty(&schema_json).unwrap_or_default(),
+        );
+        // ReaderLM ignores the Ollama format field — it always outputs fenced JSON.
+        // Pass null so Ollama doesn't apply conflicting constraints.
+        (p, serde_json::Value::Null)
+    } else {
+        let p = format!(
+            r#"Extract ALL job listings from this careers page HTML.
+
+URL: {url}
+Company: {company}
+
+Return a JSON array. Each element must have:
+- "title":      job title only (no location, no department suffix)
+- "location":   city/country or "Remote" — null if not found
+- "department": one of [{depts}]
+- "url":        URL path or full URL to the job detail page — null if not found
+
+If no job listings are visible, return an empty array: []
+Return JSON array only. No explanation.
+
+HTML:
+{html}"#,
+            url     = page_url,
+            company = company_name,
+            depts   = DEPT_VALUES,
+            html    = skeleton,
+        );
+        (p, schema_json)
+    };
 
     let raw = match ollama_chat(ollama_host, model, &prompt, format, 2048).await {
         Ok(s) => s,
@@ -377,7 +401,16 @@ HTML:
         url: Option<String>,
     }
 
-    let llm_jobs: Vec<LlmJob> = match serde_json::from_str(&raw) {
+    // ReaderLM wraps its output in ```json ... ``` fences — strip them.
+    let clean = raw.trim();
+    let clean = clean
+        .strip_prefix("```json").or_else(|| clean.strip_prefix("```"))
+        .unwrap_or(clean)
+        .strip_suffix("```")
+        .unwrap_or(clean)
+        .trim();
+
+    let llm_jobs: Vec<LlmJob> = match serde_json::from_str(clean) {
         Ok(v) => v,
         Err(e) => {
             warn!(company = company_name, "LLM extraction returned invalid JSON: {e} — raw: {}", &raw[..raw.len().min(200)]);
@@ -444,8 +477,29 @@ mod tests {
 
     #[test]
     fn prompt_includes_dept_values() {
-        // Verify dept enum values are in the extraction prompt
         assert!(DEPT_VALUES.contains("engineering"));
         assert!(DEPT_VALUES.contains("customer_success"));
+    }
+
+    #[test]
+    fn reader_lm_detection() {
+        assert!(is_reader_lm("GFalcon-UA/ReaderLM-v2:Q8"));
+        assert!(is_reader_lm("reader-lm-v2"));
+        assert!(is_reader_lm("milkey/reader_lm-v2"));
+        assert!(!is_reader_lm("qwen2.5:3b"));
+        assert!(!is_reader_lm("llama3.2:3b"));
+    }
+
+    #[test]
+    fn strips_reader_lm_json_fences() {
+        let raw = "```json\n[{\"title\":\"Engineer\",\"department\":\"engineering\"}]\n```";
+        let clean = raw.trim();
+        let clean = clean
+            .strip_prefix("```json").or_else(|| clean.strip_prefix("```"))
+            .unwrap_or(clean)
+            .strip_suffix("```")
+            .unwrap_or(clean)
+            .trim();
+        assert_eq!(clean, "[{\"title\":\"Engineer\",\"department\":\"engineering\"}]");
     }
 }
