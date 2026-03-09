@@ -41,6 +41,11 @@ home = "=0.5.9"
 scraper = "0.19"
 async-trait = "0.1"
 futures = "0.3"
+argon2 = "0.5"
+rand = "0.8"
+axum-extra = { version = "0.9", features = ["cookie"] }
+hmac = "0.12"
+time = { version = "0.3", features = ["std"] }
 
 [dev-dependencies]
 tokio = { version = "1.41", features = ["full"] }

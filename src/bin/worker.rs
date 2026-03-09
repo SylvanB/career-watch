@@ -1,20 +1,37 @@
-//! Binary entrypoint for the Career Watch worker.
+//! Background worker for change detection and email notifications.
 //!
-//! This binary is intended to be run periodically (e.g. by cron). It scans
-//! all active watchers, fetches their pages, and sends notification emails
-//! when a change is detected. When possible it computes a structured diff
-//! of added/removed job postings.
+//! Run once per invocation (cron-friendly). Fetches all active watchers
+//! whose check interval has elapsed (based on the owning user's tier),
+//! scrapes each page, diffs job listings, and sends email notifications
+//! when changes are detected.
+//!
+//! ## Check intervals by tier
+//!
+//! | Tier     | Interval  |
+//! |----------|-----------|
+//! | Free     | 24 hours  |
+//! | Pro      | 1 hour    |
+//! | Business | 15 min    |
+//!
+//! Run this worker from cron every **15 minutes**. The SQL WHERE clause
+//! filters which watchers are actually due, so higher tiers get more frequent
+//! checks automatically.
+//!
+//! ```cron
+//! */15 * * * * /path/to/career-watch-worker
+//! ```
 
 use career_watch::config::AppConfig;
 use career_watch::db::create_pool;
 use career_watch::email::EmailClient;
-use career_watch::models::{JobPosting, WatchRow};
+use career_watch::models::{JobPosting, SubscriptionTier};
 use career_watch::scraper::PageScraper;
 use chrono::Utc;
 use sqlx::types::Json;
 use sqlx::PgPool;
 use tracing_subscriber::util::SubscriberInitExt;
 use tracing_subscriber::EnvFilter;
+use uuid::Uuid;
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
@@ -37,20 +54,48 @@ async fn main() -> anyhow::Result<()> {
     Ok(())
 }
 
+/// Extended watch row that includes the owning user's tier and email.
+#[derive(sqlx::FromRow)]
+struct WatchWithUser {
+    id: Uuid,
+    company_name: String,
+    url: String,
+    // notification email (stored on the watcher, copied from user.email at creation)
+    email: String,
+    last_hash: Option<String>,
+    last_jobs_json: Option<Json<Vec<JobPosting>>>,
+    job_selector: Option<String>,
+    #[allow(dead_code)] // selected by SQL for the WHERE filter, not used in Rust
+    tier: SubscriptionTier,
+}
+
 async fn run_once(
     pool: &PgPool,
     email: &EmailClient,
     scraper: &PageScraper,
 ) -> anyhow::Result<()> {
-    let watches: Vec<WatchRow> = sqlx::query_as::<_, WatchRow>(
+    // Fetch only watchers that are due based on their owner's tier interval.
+    // Running the cron every 15 minutes and filtering here gives each tier
+    // the correct check frequency without separate cron entries.
+    let watches: Vec<WatchWithUser> = sqlx::query_as::<_, WatchWithUser>(
         r#"
-        SELECT id, company_name, url, email, last_hash, last_checked_at, created_at, active, last_jobs_json, job_selector
-        FROM watchers
-        WHERE active = true
+        SELECT w.id, w.company_name, w.url, w.email,
+               w.last_hash, w.last_jobs_json, w.job_selector,
+               u.tier
+        FROM watchers w
+        JOIN users u ON u.id = w.user_id
+        WHERE w.active = true
+          AND (
+              (u.tier = 'free'     AND (w.last_checked_at IS NULL OR w.last_checked_at < now() - interval '24 hours'))
+           OR (u.tier = 'pro'      AND (w.last_checked_at IS NULL OR w.last_checked_at < now() - interval '1 hour'))
+           OR (u.tier = 'business' AND (w.last_checked_at IS NULL OR w.last_checked_at < now() - interval '15 minutes'))
+          )
         "#,
     )
     .fetch_all(pool)
     .await?;
+
+    tracing::info!(count = watches.len(), "checking watchers");
 
     for watch in watches {
         let now = Utc::now();
@@ -58,7 +103,6 @@ async fn run_once(
         let (new_hash, added_jobs, removed_jobs, new_jobs_snapshot) =
             match &watch.job_selector {
                 Some(selector) if !selector.trim().is_empty() => {
-                    // Structured job-based mode.
                     let old_jobs: Vec<JobPosting> = watch
                         .last_jobs_json
                         .as_ref()
@@ -72,9 +116,9 @@ async fn run_once(
                         Ok(jobs) => jobs,
                         Err(err) => {
                             tracing::warn!(
-                                "failed to fetch jobs for watcher {} ({}): {err:?}",
-                                watch.id,
-                                watch.url
+                                id = %watch.id,
+                                url = watch.url,
+                                "failed to fetch jobs: {err}"
                             );
                             continue;
                         }
@@ -82,15 +126,10 @@ async fn run_once(
 
                     let (added, removed) = diff_jobs(&old_jobs, &new_jobs);
 
-                    // Still compute a content hash for coarse change tracking.
                     let hash = match scraper.fetch_hash(&watch.url).await {
                         Ok(h) => h,
                         Err(err) => {
-                            tracing::warn!(
-                                "failed to fetch hash for watcher {} ({}): {err:?}",
-                                watch.id,
-                                watch.url
-                            );
+                            tracing::warn!(id = %watch.id, "failed to fetch hash: {err}");
                             continue;
                         }
                     };
@@ -98,19 +137,17 @@ async fn run_once(
                     (hash, added, removed, Some(new_jobs))
                 }
                 _ => {
-                    // Legacy hash-only mode.
                     let new_hash = match scraper.fetch_hash(&watch.url).await {
                         Ok(h) => h,
                         Err(err) => {
                             tracing::warn!(
-                                "failed to fetch page for watcher {} ({}): {err:?}",
-                                watch.id,
-                                watch.url
+                                id = %watch.id,
+                                url = watch.url,
+                                "failed to fetch page: {err}"
                             );
                             continue;
                         }
                     };
-
                     (new_hash, Vec::new(), Vec::new(), None)
                 }
             };
@@ -118,9 +155,10 @@ async fn run_once(
         let should_notify = match watch.last_hash {
             None => false,
             Some(ref existing) => existing != &new_hash,
-        } || !added_jobs.is_empty() || !removed_jobs.is_empty();
+        } || !added_jobs.is_empty()
+            || !removed_jobs.is_empty();
 
-        if should_notify {
+        if should_notify && !watch.email.is_empty() {
             if let Err(err) = email
                 .send_change_email(
                     &watch.email,
@@ -131,22 +169,15 @@ async fn run_once(
                 )
                 .await
             {
-                tracing::warn!(
-                    "failed to send email for watcher {}: {err:?}",
-                    watch.id
-                );
+                tracing::warn!(id = %watch.id, "failed to send email: {err}");
             }
         }
 
-        let jobs_json: Option<Json<Vec<JobPosting>>> =
-            new_jobs_snapshot.map(|jobs| Json(jobs));
+        let jobs_json: Option<Json<Vec<JobPosting>>> = new_jobs_snapshot.map(Json);
 
         if let Err(err) = sqlx::query(
-            r#"
-            UPDATE watchers
-            SET last_hash = $1, last_checked_at = $2, last_jobs_json = $3
-            WHERE id = $4
-            "#,
+            "UPDATE watchers SET last_hash = $1, last_checked_at = $2, last_jobs_json = $3
+             WHERE id = $4",
         )
         .bind(&new_hash)
         .bind(now)
@@ -155,10 +186,7 @@ async fn run_once(
         .execute(pool)
         .await
         {
-            tracing::warn!(
-                "failed to update watcher {} after scrape: {err:?}",
-                watch.id
-            );
+            tracing::warn!(id = %watch.id, "failed to update watcher after scrape: {err}");
         }
     }
 
@@ -167,19 +195,10 @@ async fn run_once(
 
 fn diff_jobs(old: &[JobPosting], new: &[JobPosting]) -> (Vec<JobPosting>, Vec<JobPosting>) {
     use std::collections::HashSet;
-
     let old_set: HashSet<_> = old.iter().cloned().collect();
     let new_set: HashSet<_> = new.iter().cloned().collect();
-
-    let added = new_set
-        .difference(&old_set)
-        .cloned()
-        .collect::<Vec<_>>();
-    let removed = old_set
-        .difference(&new_set)
-        .cloned()
-        .collect::<Vec<_>>();
-
+    let added = new_set.difference(&old_set).cloned().collect();
+    let removed = old_set.difference(&new_set).cloned().collect();
     (added, removed)
 }
 
@@ -202,11 +221,8 @@ mod tests {
     fn diff_jobs_detects_added_and_removed() {
         let old = vec![job("A"), job("B")];
         let new = vec![job("B"), job("C")];
-
         let (added, removed) = diff_jobs(&old, &new);
-
         assert_eq!(added, vec![job("C")]);
         assert_eq!(removed, vec![job("A")]);
     }
 }
-

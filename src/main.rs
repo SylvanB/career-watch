@@ -1,21 +1,19 @@
 //! Binary entrypoint for the Career Watch HTTP API server.
-//!
-//! Wires together configuration, database, email client, and router and
-//! starts an Axum server listening on `BIND_ADDR`.
 
+use std::net::SocketAddr;
+use std::sync::Arc;
+
+use career_watch::billing::StripeClient;
 use career_watch::config::AppConfig;
 use career_watch::db::create_pool;
 use career_watch::email::EmailClient;
 use career_watch::routes;
 use career_watch::scraper::PageScraper;
 use career_watch::AppState;
-use std::net::SocketAddr;
-use tower_http::trace::TraceLayer;
 use tracing_subscriber::util::SubscriberInitExt;
 use tracing_subscriber::EnvFilter;
 
 #[tokio::main]
-/// Start the HTTP API server.
 async fn main() -> anyhow::Result<()> {
     dotenvy::dotenv().ok();
 
@@ -30,20 +28,17 @@ async fn main() -> anyhow::Result<()> {
 
     let email = EmailClient::from_config(&config)?;
     let scraper = PageScraper::new();
+    let stripe = StripeClient::new(config.stripe_secret_key.clone())?;
+    let config = Arc::new(config);
 
-    let state = AppState { db, email, scraper };
-
-    let app = routes::router()
-        .layer(TraceLayer::new_for_http())
-        .with_state(state);
+    let state = AppState { db, email, scraper, stripe, config: config.clone() };
 
     let addr: SocketAddr = config.bind_addr.parse()?;
     let listener = tokio::net::TcpListener::bind(addr).await?;
 
-    tracing::info!("listening on {}", addr);
+    tracing::info!("listening on {addr}");
 
-    axum::serve(listener, app).await?;
+    axum::serve(listener, routes::router(state)).await?;
 
     Ok(())
 }
-

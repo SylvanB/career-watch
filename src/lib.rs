@@ -1,8 +1,7 @@
 //! Core library crate for the Career Watch service.
-//!
-//! This crate exposes shared modules and the `AppState` used by both the
-//! HTTP API binary and the background worker.
 
+pub mod auth;
+pub mod billing;
 pub mod config;
 pub mod db;
 pub mod discovery;
@@ -11,6 +10,10 @@ pub mod models;
 pub mod routes;
 pub mod scraper;
 
+use std::sync::Arc;
+
+use billing::StripeClient;
+use config::AppConfig;
 use email::EmailClient;
 use scraper::PageScraper;
 use sqlx::PgPool;
@@ -20,5 +23,6 @@ pub struct AppState {
     pub db: PgPool,
     pub email: EmailClient,
     pub scraper: PageScraper,
+    pub stripe: StripeClient,
+    pub config: Arc<AppConfig>,
 }
-

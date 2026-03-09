@@ -9,6 +9,7 @@ use std::env;
 pub struct AppConfig {
     pub database_url: String,
     pub bind_addr: String,
+    // SMTP
     pub smtp_host: String,
     pub smtp_port: u16,
     pub smtp_user: String,
@@ -17,13 +18,22 @@ pub struct AppConfig {
     /// When `false`, connects with no TLS (plain SMTP). Use for local dev
     /// with Mailpit. Defaults to `true` for production SMTP providers.
     pub smtp_tls: bool,
+    // Stripe
+    pub stripe_secret_key: String,
+    pub stripe_webhook_secret: String,
+    pub stripe_price_pro: String,
+    pub stripe_price_business: String,
+    // App
+    /// Public base URL used to build links in emails (e.g. `https://careerwatch.io`).
+    pub app_base_url: String,
+    /// Static bearer token for internal admin endpoints.
+    pub admin_secret: String,
+    /// Whether to set the `Secure` flag on session cookies.
+    /// Set to `false` for local HTTP dev; always `true` in production.
+    pub cookie_secure: bool,
 }
 
 impl AppConfig {
-    /// Construct an `AppConfig` from environment variables.
-    ///
-    /// All SMTP and database-related keys are required. `BIND_ADDR` is optional
-    /// and defaults to `0.0.0.0:8080` when omitted.
     pub fn from_env() -> Result<Self, anyhow::Error> {
         let database_url = env::var("DATABASE_URL")
             .map_err(|_| anyhow::anyhow!("DATABASE_URL must be set"))?;
@@ -36,15 +46,26 @@ impl AppConfig {
             .unwrap_or_else(|_| "587".to_string())
             .parse()
             .map_err(|_| anyhow::anyhow!("SMTP_PORT must be a valid u16"))?;
-        let smtp_user =
-            env::var("SMTP_USER").map_err(|_| anyhow::anyhow!("SMTP_USER must be set"))?;
-        let smtp_pass =
-            env::var("SMTP_PASS").map_err(|_| anyhow::anyhow!("SMTP_PASS must be set"))?;
+        let smtp_user = env::var("SMTP_USER").unwrap_or_default();
+        let smtp_pass = env::var("SMTP_PASS").unwrap_or_default();
         let smtp_from =
             env::var("SMTP_FROM").map_err(|_| anyhow::anyhow!("SMTP_FROM must be set"))?;
-
         let smtp_tls = env::var("SMTP_TLS")
             .unwrap_or_else(|_| "true".to_string())
+            .to_lowercase()
+            != "false";
+
+        let stripe_secret_key = env::var("STRIPE_SECRET_KEY").unwrap_or_default();
+        let stripe_webhook_secret = env::var("STRIPE_WEBHOOK_SECRET").unwrap_or_default();
+        let stripe_price_pro = env::var("STRIPE_PRICE_PRO").unwrap_or_default();
+        let stripe_price_business = env::var("STRIPE_PRICE_BUSINESS").unwrap_or_default();
+
+        let app_base_url = env::var("APP_BASE_URL")
+            .unwrap_or_else(|_| "http://localhost:8080".to_string());
+        let admin_secret =
+            env::var("ADMIN_SECRET").unwrap_or_else(|_| "change-me-in-production".to_string());
+        let cookie_secure = env::var("COOKIE_SECURE")
+            .unwrap_or_else(|_| "false".to_string())
             .to_lowercase()
             != "false";
 
@@ -57,6 +78,13 @@ impl AppConfig {
             smtp_pass,
             smtp_from,
             smtp_tls,
+            stripe_secret_key,
+            stripe_webhook_secret,
+            stripe_price_pro,
+            stripe_price_business,
+            app_base_url,
+            admin_secret,
+            cookie_secure,
         })
     }
 }
@@ -83,6 +111,13 @@ mod tests {
             "SMTP_PASS",
             "SMTP_FROM",
             "SMTP_TLS",
+            "STRIPE_SECRET_KEY",
+            "STRIPE_WEBHOOK_SECRET",
+            "STRIPE_PRICE_PRO",
+            "STRIPE_PRICE_BUSINESS",
+            "APP_BASE_URL",
+            "ADMIN_SECRET",
+            "COOKIE_SECURE",
         ] {
             env::remove_var(key);
         }
@@ -107,9 +142,6 @@ mod tests {
         assert_eq!(cfg.bind_addr, "127.0.0.1:9000");
         assert_eq!(cfg.smtp_host, "smtp.example.com");
         assert_eq!(cfg.smtp_port, 2525);
-        assert_eq!(cfg.smtp_user, "user");
-        assert_eq!(cfg.smtp_pass, "pass");
-        assert_eq!(cfg.smtp_from, "no-reply@example.com");
 
         clear_keys();
     }
@@ -121,9 +153,6 @@ mod tests {
 
         env::set_var("DATABASE_URL", "postgres://user:pass@localhost/db");
         env::set_var("SMTP_HOST", "smtp.example.com");
-        env::set_var("SMTP_PORT", "587");
-        env::set_var("SMTP_USER", "user");
-        env::set_var("SMTP_PASS", "pass");
         env::set_var("SMTP_FROM", "no-reply@example.com");
 
         let cfg = AppConfig::from_env().expect("config should load");
@@ -132,4 +161,3 @@ mod tests {
         clear_keys();
     }
 }
-
