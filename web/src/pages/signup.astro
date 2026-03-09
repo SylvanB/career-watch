@@ -21,8 +21,8 @@ import Base from '../layouts/Base.astro';
     <div class="mt-8 sm:mx-auto sm:w-full sm:max-w-md">
       <div class="card px-8 py-10" x-data="signupForm()">
 
-        <!-- Success state -->
-        <div x-show="success" x-transition class="text-center py-4">
+        <!-- Success state (hidden until form submitted) -->
+        <div x-show="success" x-cloak x-transition class="text-center py-4">
           <div class="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-green-100">
             <svg class="h-6 w-6 text-green-600" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
               <path stroke-linecap="round" stroke-linejoin="round" d="M4.5 12.75l6 6 9-13.5" />
@@ -35,7 +35,7 @@ import Base from '../layouts/Base.astro';
           <a href="/dashboard" class="btn-primary w-full justify-center">Go to dashboard</a>
         </div>
 
-        <!-- Form -->
+        <!-- Form (visible by default; hidden only after successful submit) -->
         <form x-show="!success" @submit.prevent="submit()" class="space-y-5">
           <div x-show="error" x-transition class="alert-error">
             <svg class="h-4 w-4 flex-shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">

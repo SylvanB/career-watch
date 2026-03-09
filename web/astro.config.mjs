@@ -2,7 +2,7 @@ import { defineConfig } from 'astro/config';
 import tailwind from '@astrojs/tailwind';
 
 export default defineConfig({
-  integrations: [tailwind()],
+  integrations: [tailwind({ applyBaseStyles: false })],
   output: 'static',
   // In dev, proxy API calls to the Rust backend
   // In production, Caddy handles this

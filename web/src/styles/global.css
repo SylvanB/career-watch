@@ -2,6 +2,9 @@
 @tailwind components;
 @tailwind utilities;
 
+/* Hide Alpine x-cloak elements until Alpine initialises */
+[x-cloak] { display: none !important; }
+
 @layer base {
   html {
     -webkit-font-smoothing: antialiased;
