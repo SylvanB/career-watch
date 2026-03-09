@@ -150,8 +150,8 @@ pub async fn watch_company(
     }
 
     // Look up the company.
-    let company = sqlx::query_as::<_, (String, String, String, Option<String>, Option<String>)>(
-        "SELECT name, career_url, platform, platform_id, job_selector FROM companies WHERE id = $1 AND status = 'active'",
+    let company = sqlx::query_as::<_, (String, String, String, Option<String>, Option<String>, Option<String>, Option<String>)>(
+        "SELECT name, career_url, platform, platform_id, job_selector, title_selector, location_selector FROM companies WHERE id = $1 AND status = 'active'",
     )
     .bind(company_id)
     .fetch_optional(&state.db)
@@ -159,7 +159,7 @@ pub async fn watch_company(
     .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({"error":"internal error"}))))?
     .ok_or_else(|| (StatusCode::NOT_FOUND, Json(serde_json::json!({"error":"company not found"}))))?;
 
-    let (name, career_url, _platform, _platform_id, job_selector) = company;
+    let (name, career_url, _platform, _platform_id, job_selector, title_selector, location_selector) = company;
 
     // Idempotency: return the existing watcher if already watching.
     if let Some(watcher_id) = sqlx::query_scalar::<_, Uuid>(
@@ -199,8 +199,9 @@ pub async fn watch_company(
     let watcher_id = Uuid::new_v4();
     sqlx::query(
         r#"
-        INSERT INTO watchers (id, user_id, company_id, company_name, url, email, job_selector)
-        VALUES ($1, $2, $3, $4, $5, $6, $7)
+        INSERT INTO watchers (id, user_id, company_id, company_name, url, email,
+                              job_selector, title_selector, location_selector)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
         "#,
     )
     .bind(watcher_id)
@@ -210,6 +211,8 @@ pub async fn watch_company(
     .bind(&career_url)
     .bind(&user.email)
     .bind(job_selector.as_deref())
+    .bind(title_selector.as_deref())
+    .bind(location_selector.as_deref())
     .execute(&state.db)
     .await
     .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({"error":"internal error"}))))?;

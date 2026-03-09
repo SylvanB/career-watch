@@ -20,6 +20,18 @@ services:
       retries: 10
       start_period: 10s
 
+  # Local LLM inference for selector detection.
+  # Start with: docker compose --profile ai up ollama
+  # Then pull a model: docker compose exec ollama ollama pull qwen2.5:3b
+  ollama:
+    image: ollama/ollama:latest
+    restart: unless-stopped
+    profiles: ["ai"]
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama_data:/root/.ollama
+
   # Local SMTP server with a web UI at http://localhost:8025
   # Catches all outbound email — nothing is actually delivered.
   mailpit:
@@ -70,3 +82,4 @@ services:
 
 volumes:
   postgres_data:
+  ollama_data:

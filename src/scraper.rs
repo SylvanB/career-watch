@@ -57,11 +57,25 @@ impl PageScraper {
         Ok(hash_body(&body))
     }
 
-    /// Fetch a URL and extract job postings using a CSS selector.
+    /// Fetch a URL and extract job postings.
+    ///
+    /// When `title_selector` is provided, uses two-level extraction for clean
+    /// title/location separation. Falls back to single-selector extraction.
     pub async fn fetch_jobs(
         &self,
         url: &str,
         job_selector: &str,
+        company_name: &str,
+    ) -> Result<Vec<JobPosting>> {
+        self.fetch_jobs_with_selectors(url, job_selector, None, None, company_name).await
+    }
+
+    pub async fn fetch_jobs_with_selectors(
+        &self,
+        url: &str,
+        job_selector: &str,
+        title_selector: Option<&str>,
+        location_selector: Option<&str>,
         company_name: &str,
     ) -> Result<Vec<JobPosting>> {
         let body = self
@@ -76,7 +90,11 @@ impl PageScraper {
             .await
             .context("failed to read page body")?;
 
-        extract_jobs_from_html(&body, job_selector, company_name)
+        if let Some(title_sel) = title_selector {
+            extract_jobs_two_level(&body, job_selector, title_sel, location_selector, company_name)
+        } else {
+            extract_jobs_from_html(&body, job_selector, company_name)
+        }
     }
 }
 
@@ -86,6 +104,77 @@ pub fn hash_body(body: &str) -> String {
     hasher.update(body.as_bytes());
     let hash = hasher.finalize();
     format!("{:x}", hash)
+}
+
+/// Extract job postings using a two-level selector when available.
+///
+/// When `title_selector` is provided, each matched card element is queried
+/// for the title child (`title_selector`) and location child
+/// (`location_selector`) separately — eliminating the need for case-boundary
+/// splitting or class-name heuristics.
+///
+/// Falls back to `extract_jobs_from_html` when no two-level selectors exist.
+pub fn extract_jobs_two_level(
+    html: &str,
+    card_selector: &str,
+    title_selector: &str,
+    location_selector: Option<&str>,
+    company_name: &str,
+) -> Result<Vec<JobPosting>> {
+    let document = Html::parse_document(html);
+    let card_sel = Selector::parse(card_selector)
+        .map_err(|_| anyhow::anyhow!("invalid card selector: {}", card_selector))?;
+    let title_sel = Selector::parse(title_selector)
+        .map_err(|_| anyhow::anyhow!("invalid title selector: {}", title_selector))?;
+    let loc_sel = location_selector
+        .and_then(|s| Selector::parse(s).ok());
+
+    let mut jobs = Vec::new();
+
+    for card in document.select(&card_sel) {
+        // Title: first matching child element.
+        let title = card
+            .select(&title_sel)
+            .next()
+            .map(|el| el.text().collect::<String>().split_whitespace().collect::<Vec<_>>().join(" "))
+            .unwrap_or_default()
+            .trim()
+            .to_string();
+
+        if title.is_empty() { continue; }
+
+        // Location: first matching child element, if selector provided.
+        let location = loc_sel.as_ref().and_then(|s| {
+            card.select(s).next().map(|el| {
+                el.text().collect::<String>()
+                    .split_whitespace()
+                    .collect::<Vec<_>>()
+                    .join(" ")
+                    .trim()
+                    .to_string()
+            })
+        }).filter(|s| !s.is_empty());
+
+        let url = card.value().attr("href")
+            .or_else(|| {
+                Selector::parse("a[href]").ok().and_then(|s| {
+                    card.select(&s).next()?.value().attr("href")
+                })
+            })
+            .map(String::from);
+
+        let posted_text = card.value().attr("data-posted").map(String::from);
+
+        jobs.push(JobPosting {
+            title,
+            company: company_name.to_string(),
+            location,
+            posted_text,
+            url,
+        });
+    }
+
+    Ok(jobs)
 }
 
 /// Extract job postings from an HTML document using a CSS selector.

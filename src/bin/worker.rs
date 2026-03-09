@@ -58,7 +58,6 @@ async fn main() -> anyhow::Result<()> {
 struct WatchWithUser {
     id: Uuid,
     user_id: Option<Uuid>,
-    /// FK to `companies` — set for catalog-discovered watchers.
     company_id: Option<Uuid>,
     company_name: String,
     url: String,
@@ -66,6 +65,9 @@ struct WatchWithUser {
     last_hash: Option<String>,
     last_jobs_json: Option<Json<Vec<JobPosting>>>,
     job_selector: Option<String>,
+    /// Two-level selectors from LLM detection — clean title without location noise.
+    title_selector: Option<String>,
+    location_selector: Option<String>,
     #[allow(dead_code)]
     tier: SubscriptionTier,
 }
@@ -79,6 +81,7 @@ async fn run_once(
         r#"
         SELECT w.id, w.user_id, w.company_id, w.company_name, w.url, w.email,
                w.last_hash, w.last_jobs_json, w.job_selector,
+               w.title_selector, w.location_selector,
                u.tier
         FROM watchers w
         JOIN users u ON u.id = w.user_id
@@ -115,7 +118,13 @@ async fn run_once(
                         .unwrap_or_default();
 
                     let new_jobs = match scraper
-                        .fetch_jobs(&watch.url, selector, &watch.company_name)
+                        .fetch_jobs_with_selectors(
+                            &watch.url,
+                            selector,
+                            watch.title_selector.as_deref(),
+                            watch.location_selector.as_deref(),
+                            &watch.company_name,
+                        )
                         .await
                     {
                         Ok(jobs) => jobs,

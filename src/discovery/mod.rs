@@ -24,6 +24,7 @@
 //! Re-probe on schedule (status = 'active', last_probed_at stale)
 //! ```
 
+pub mod llm_selector;
 pub mod platform;
 pub mod prober;
 pub mod scheduler;

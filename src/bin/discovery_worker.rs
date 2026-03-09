@@ -48,7 +48,7 @@ async fn main() -> Result<()> {
     sqlx::migrate!().run(&pool).await?;
 
     let http = build_http_client()?;
-    let prober = CareerProber::new()?;
+    let prober = CareerProber::with_ollama(&config.ollama_host, &config.ollama_model)?;
     let scheduler = DiscoveryScheduler::new(pool, prober);
 
     // ── Phase 1: collect leads from all seed sources ──────────────────────────

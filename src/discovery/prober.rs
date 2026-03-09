@@ -36,6 +36,7 @@ use scraper::{Html, Selector};
 use std::time::Duration;
 use tracing::{debug, info, warn};
 
+use super::llm_selector::{detect_selectors_via_llm, preprocess_html};
 use super::platform::{detect_platform, extract_platform_id, Platform};
 use super::selector::detect_job_selector;
 use super::validator::has_job_listings;
@@ -51,9 +52,12 @@ pub struct Candidate {
     pub platform: Platform,
     pub platform_id: Option<String>,
     pub job_count_estimate: usize,
-    /// Auto-detected CSS selector for individual job listing elements.
-    /// `None` for JS-heavy pages where static selectors are unreliable.
+    /// CSS selector for each job card container.
     pub job_selector: Option<String>,
+    /// CSS selector for the title element *within* the job card.
+    pub title_selector: Option<String>,
+    /// CSS selector for the location element *within* the job card.
+    pub location_selector: Option<String>,
     /// Which strategy produced this candidate.
     pub source: &'static str,
 }
@@ -68,6 +72,8 @@ impl Candidate {
         source: &'static str,
     ) -> Self {
         let job_selector = detect_job_selector(html, &platform);
+        let title_selector    = None; // populated later by LlmSelectorStrategy
+        let location_selector = None;
         let mut score: u32 = 1;
 
         // Known ATS platform
@@ -105,7 +111,7 @@ impl Candidate {
             _               => 0,
         };
 
-        Self { url, score, platform, platform_id, job_count_estimate: job_count, job_selector, source }
+        Self { url, score, platform, platform_id, job_count_estimate: job_count, job_selector, title_selector, location_selector, source }
     }
 }
 
@@ -132,8 +138,9 @@ pub struct CareerPageResult {
     pub job_count_estimate: usize,
     pub score: u32,
     pub source: &'static str,
-    /// Auto-detected CSS selector for job listings on this page.
     pub job_selector: Option<String>,
+    pub title_selector: Option<String>,
+    pub location_selector: Option<String>,
 }
 
 impl From<Candidate> for CareerPageResult {
@@ -146,6 +153,8 @@ impl From<Candidate> for CareerPageResult {
             score: c.score,
             source: c.source,
             job_selector: c.job_selector,
+            title_selector: c.title_selector,
+            location_selector: c.location_selector,
         }
     }
 }
@@ -764,12 +773,88 @@ impl ProbeStrategy for PathProbeStrategy {
 /// Constructs and runs the default strategy pipeline. New strategies can be
 /// appended to `pipeline` in [`CareerProber::new`] without touching any other
 /// code.
+// ── Strategy 7: LlmSelector ───────────────────────────────────────────────────
+
+/// Ask a local Ollama model to identify job listing selectors from the HTML
+/// of the best candidate found so far.
+///
+/// Runs last in the pipeline. If the best candidate already has a job_selector
+/// (from static detection), this strategy refines it with two-level selectors
+/// (title_within + location_within). If there is no selector yet, it tries to
+/// find one from scratch.
+///
+/// Silently skips when Ollama is not configured or unreachable.
+pub struct LlmSelectorStrategy {
+    pub ollama_host:  String,
+    pub ollama_model: String,
+}
+
+#[async_trait::async_trait]
+impl ProbeStrategy for LlmSelectorStrategy {
+    fn name(&self) -> &'static str { "llm_selector" }
+
+    async fn run(&self, ctx: &mut ProbeContext, _client: &Client) -> Result<()> {
+        if self.ollama_host.is_empty() {
+            return Ok(());
+        }
+
+        // We need the HTML of the best career page found so far.
+        // If the best candidate URL matches the homepage, use cached HTML;
+        // otherwise we'd need to re-fetch. Use homepage HTML as the source
+        // since it was already fetched by HomepageFetchStrategy.
+        let (html, page_url) = match (&ctx.homepage_html, &ctx.homepage_final_url) {
+            (Some(h), Some(u)) => (h.clone(), u.clone()),
+            _ => return Ok(()),
+        };
+
+        // If the best candidate already has both selectors, skip.
+        if let Some(best) = ctx.best() {
+            if best.job_selector.is_some()
+                && best.title_selector.is_some()
+            {
+                return Ok(());
+            }
+        }
+
+        info!(domain = ctx.domain, model = self.ollama_model, "running LLM selector detection");
+
+        match detect_selectors_via_llm(&html, &page_url, &self.ollama_host, &self.ollama_model).await {
+            Ok(Some(result)) => {
+                // Update the best candidate in place, or add a new one.
+                if let Some(best) = ctx.candidates.iter_mut().max_by_key(|c| c.score) {
+                    best.job_selector      = Some(result.selector);
+                    best.title_selector    = result.title_within;
+                    best.location_selector = result.location_within;
+                    best.score            += 2; // LLM confirmation bonus
+                    info!(
+                        domain    = ctx.domain,
+                        selector  = best.job_selector.as_deref().unwrap_or(""),
+                        "LLM selector applied to best candidate"
+                    );
+                }
+            }
+            Ok(None) => {
+                debug!(domain = ctx.domain, "LLM returned no usable selector");
+            }
+            Err(e) => {
+                warn!(domain = ctx.domain, "LLM selector detection failed: {e}");
+            }
+        }
+
+        Ok(())
+    }
+}
+
 pub struct CareerProber {
     pipeline: ProbePipeline,
 }
 
 impl CareerProber {
     pub fn new() -> Result<Self> {
+        Self::with_ollama("", "qwen2.5:3b")
+    }
+
+    pub fn with_ollama(ollama_host: &str, ollama_model: &str) -> Result<Self> {
         let client = Client::builder()
             .timeout(Duration::from_secs(15))
             .connect_timeout(Duration::from_secs(8))
@@ -778,26 +863,22 @@ impl CareerProber {
             .build()?;
 
         let pipeline = ProbePipeline::new(client)
-            // 1. Fetch and cache the homepage — feeds strategies 2 and 3
             .with_strategy(HomepageFetchStrategy)
-            // 2. Check for ATS embeds — highest confidence, stops early if found
             .with_strategy(AtsEmbedStrategy)
-            // 3. Follow career links from the homepage nav/footer
             .with_strategy(HomepageLinkStrategy)
-            // 4. Check careers.company.com, jobs.company.com etc.
             .with_strategy(CareerSubdomainStrategy)
-            // 5. Parse sitemap.xml / robots.txt
             .with_strategy(SitemapStrategy)
-            // 6. Fallback: probe common URL paths (HEAD-first)
-            .with_strategy(PathProbeStrategy);
+            .with_strategy(PathProbeStrategy)
+            // Last resort: ask a local LLM to identify selectors.
+            // Silently skipped when Ollama is not configured or not running.
+            .with_strategy(LlmSelectorStrategy {
+                ollama_host: ollama_host.to_string(),
+                ollama_model: ollama_model.to_string(),
+            });
 
         Ok(Self { pipeline })
     }
 
-    /// Probe a bare domain for its career page.
-    ///
-    /// Runs the full strategy pipeline and returns the highest-confidence
-    /// result, or `None` if no valid career page was found.
     pub async fn probe_domain(&self, domain: &str) -> Option<CareerPageResult> {
         self.pipeline.run(domain).await
     }

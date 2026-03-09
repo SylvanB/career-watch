@@ -34,6 +34,10 @@ help:
 	@echo "    make test-rm-job   Remove 'senior-rust-engineer' from test server"
 	@echo "    make test-reset    Reset test server jobs to defaults"
 	@echo ""
+	@echo "  Ollama (local LLM)"
+	@echo "    make ollama-up     Start Ollama container"
+	@echo "    make ollama-pull   Pull the configured model (qwen2.5:3b)"
+	@echo ""
 	@echo "  Frontend (web/)"
 	@echo "    make web-install   npm install"
 	@echo "    make web-dev       Astro dev server on :4321 (proxies API to :8080)"
@@ -126,6 +130,20 @@ test-rm-job:
 test-reset:
 	curl -s -X POST $(TEST_SERVER)/admin/reset \
 	  && echo " → reset to defaults"
+
+# ── Ollama ───────────────────────────────────────────────────────────────────
+
+OLLAMA_MODEL ?= qwen2.5:3b
+
+.PHONY: ollama-up
+ollama-up:
+	$(COMPOSE) --profile ai up -d ollama
+	@echo "  Ollama → http://localhost:11434"
+
+.PHONY: ollama-pull
+ollama-pull:
+	$(COMPOSE) exec ollama ollama pull $(OLLAMA_MODEL)
+	@echo "  Model ready: $(OLLAMA_MODEL)"
 
 # ── Frontend ─────────────────────────────────────────────────────────────────
 

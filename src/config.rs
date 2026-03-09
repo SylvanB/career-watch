@@ -31,6 +31,12 @@ pub struct AppConfig {
     /// Whether to set the `Secure` flag on session cookies.
     /// Set to `false` for local HTTP dev; always `true` in production.
     pub cookie_secure: bool,
+    /// Ollama base URL for local LLM selector detection.
+    /// Leave blank to disable LLM-assisted selector detection.
+    pub ollama_host: String,
+    /// Ollama model to use for selector detection.
+    /// Recommended: qwen2.5:3b or jinaai/reader-lm-v2
+    pub ollama_model: String,
 }
 
 impl AppConfig {
@@ -69,6 +75,11 @@ impl AppConfig {
             .to_lowercase()
             != "false";
 
+        let ollama_host = env::var("OLLAMA_HOST")
+            .unwrap_or_else(|_| "http://localhost:11434".to_string());
+        let ollama_model = env::var("OLLAMA_MODEL")
+            .unwrap_or_else(|_| "qwen2.5:3b".to_string());
+
         Ok(Self {
             database_url,
             bind_addr,
@@ -85,6 +96,8 @@ impl AppConfig {
             app_base_url,
             admin_secret,
             cookie_secure,
+            ollama_host,
+            ollama_model,
         })
     }
 }
