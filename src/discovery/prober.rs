@@ -336,12 +336,19 @@ impl ProbeStrategy for AtsEmbedStrategy {
             return Ok(());
         }
 
-        if let Some(board_url) = find_ats_board_url(&html, &platform) {
+        // Try to find the board URL directly in the HTML.
+        let board_url = find_ats_board_url(&html, &platform)
+            // Fallback: many companies load the embed via JS so the board URL
+            // isn't in the static HTML. Guess the slug from the domain and
+            // probe the known board URL pattern directly.
+            .or_else(|| guess_ats_board_url(&platform, &ctx.domain));
+
+        if let Some(board_url) = board_url {
             match probe_url(client, &board_url, "ats_embed").await? {
                 Some(candidate) => ctx.add(candidate),
                 None => {
-                    // ATS embed is strong signal even if validation doesn't confirm jobs —
-                    // the board page may load via JS. Add with platform-known selector.
+                    // Board page exists but no jobs visible in static HTML — could
+                    // still be valid (jobs load via JS). Add with platform selector.
                     let (_, job_count) = has_job_listings(&html, &platform);
                     let platform_id = extract_platform_id(&platform, &board_url);
                     ctx.add(Candidate::new(
@@ -427,6 +434,19 @@ fn find_ats_board_url(html: &str, platform: &Platform) -> Option<String> {
             None
         }
     }
+}
+
+/// When the ATS embed is loaded via JavaScript the board URL isn't in the
+/// static HTML. This function guesses the board URL by extracting the slug
+/// from the company domain and constructing the canonical board URL.
+///
+/// e.g. `mercury.com` → `boards.greenhouse.io/mercury`
+fn guess_ats_board_url(platform: &Platform, domain: &str) -> Option<String> {
+    // Extract the first label of the domain (before the first dot).
+    // "mercury.com" → "mercury", "mistral.ai" → "mistral"
+    let slug = domain.split('.').next()?.to_lowercase();
+    if slug.len() < 2 { return None; }
+    platform.board_url(&slug)
 }
 
 // ── Strategy 3: HomepageLink ──────────────────────────────────────────────────
