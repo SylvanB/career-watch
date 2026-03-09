@@ -120,6 +120,12 @@ const PLATFORMS = [
             ></a>
           </div>
 
+          <!-- Signals link -->
+          <a :href="`/company?id=${c.id}`"
+             class="mb-2 block text-center text-xs text-gray-400 hover:text-brand-600 transition-colors">
+            View hiring signals →
+          </a>
+
           <!-- Watch / Unwatch button -->
           <button
             @click="toggle(c)"

@@ -19,6 +19,7 @@ use crate::auth::middleware::{require_admin, require_auth};
 use crate::rate_limit::{rate_limit, RateLimiter};
 use crate::routes::{
     admin::{get_user, list_users, patch_user_tier},
+    analytics::{company_jobs, company_metrics, hiring_signals},
     auth::{forgot_password, login, logout, register, reset_password, verify_email},
     billing::{create_checkout, create_portal, stripe_webhook},
     companies::{list_companies, unwatch_company, watch_company},
@@ -30,6 +31,7 @@ use crate::routes::{
 use crate::AppState;
 
 pub mod admin;
+pub mod analytics;
 pub mod auth;
 pub mod billing;
 pub mod companies;
@@ -62,6 +64,9 @@ pub fn router(state: AppState) -> Router {
         .route("/api/me", get(me))
         .route("/api/companies", get(list_companies))
         .route("/api/companies/:id/watch", post(watch_company).delete(unwatch_company))
+        .route("/api/companies/:id/metrics", get(company_metrics))
+        .route("/api/companies/:id/jobs", get(company_jobs))
+        .route("/api/signals", get(hiring_signals))
         .route("/api/notifications", get(list_notifications))
         .route("/api/notifications/read-all", post(mark_all_read))
         .route("/api/watches", get(list_watches).post(create_watch))

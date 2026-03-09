@@ -1,0 +1,377 @@
+---
+import App from '../layouts/App.astro';
+---
+
+<App title="Company signals">
+  <div x-data="companyPage()" x-init="init()">
+
+    <!-- Loading -->
+    <div x-show="loading" class="space-y-4">
+      <div class="h-8 w-64 animate-pulse rounded bg-gray-100"></div>
+      <div class="grid gap-4 sm:grid-cols-4">
+        <template x-for="i in [1,2,3,4]"><div class="h-24 animate-pulse rounded-lg bg-gray-100"></div></template>
+      </div>
+      <div class="h-64 animate-pulse rounded-lg bg-gray-100"></div>
+    </div>
+
+    <!-- Not found -->
+    <div x-show="!loading && !company" class="card py-20 text-center">
+      <p class="text-gray-500">Company not found or no data collected yet.</p>
+      <a href="/discover" class="btn-primary mt-4 inline-block">Back to Discover</a>
+    </div>
+
+    <!-- Content -->
+    <div x-show="!loading && company">
+
+      <!-- Header -->
+      <div class="mb-8 flex items-start justify-between gap-4">
+        <div>
+          <div class="mb-1 flex items-center gap-3">
+            <h1 class="text-2xl font-bold text-gray-900" x-text="company?.name"></h1>
+            <span class="inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium"
+                  :class="platformBadge(company?.platform)"
+                  x-text="company?.platform || 'custom'"></span>
+          </div>
+          <a :href="`https://${company?.domain}`" target="_blank" rel="noopener"
+             class="text-sm text-gray-400 hover:text-brand-600"
+             x-text="company?.domain"></a>
+        </div>
+        <div class="flex gap-2">
+          <a :href="company?.career_url" target="_blank" rel="noopener" class="btn-secondary text-sm">
+            View careers page ↗
+          </a>
+          <button x-show="!isWatched" @click="watch()" :disabled="toggling"
+                  class="btn-primary text-sm">
+            <span x-text="toggling ? '…' : '+ Watch'"></span>
+          </button>
+          <button x-show="isWatched" @click="unwatch()" :disabled="toggling"
+                  class="btn-secondary text-sm hover:text-red-600">
+            <span x-text="toggling ? '…' : 'Watching ✓'"></span>
+          </button>
+        </div>
+      </div>
+
+      <!-- Spike banner -->
+      <div x-show="metrics?.spike?.is_spike" x-cloak
+           class="mb-6 rounded-lg bg-amber-50 border border-amber-200 px-5 py-4 flex items-start gap-3">
+        <span class="text-xl">⚡</span>
+        <div>
+          <p class="font-semibold text-amber-800">Hiring spike detected</p>
+          <p class="text-sm text-amber-700">
+            <span x-text="metrics?.spike?.new_jobs_7d"></span> new jobs in the last 7 days —
+            <span x-text="metrics?.spike?.multiplier?.toFixed(1)"></span>× above the baseline of
+            <span x-text="metrics?.spike?.baseline_jobs_per_week?.toFixed(1)"></span> jobs/week.
+          </p>
+        </div>
+      </div>
+
+      <!-- KPI cards -->
+      <div class="mb-8 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        <div class="card p-5">
+          <p class="text-xs font-semibold uppercase tracking-wider text-gray-400">Active roles</p>
+          <p class="mt-2 text-3xl font-extrabold text-gray-900" x-text="metrics?.active_jobs ?? '—'"></p>
+        </div>
+        <div class="card p-5">
+          <p class="text-xs font-semibold uppercase tracking-wider text-gray-400">Jobs / week</p>
+          <div class="mt-2 flex items-baseline gap-2">
+            <span class="text-3xl font-extrabold text-gray-900"
+                  x-text="metrics?.velocity?.jobs_per_week_7d?.toFixed(1) ?? '—'"></span>
+            <span class="text-sm font-medium"
+                  :class="{ 'text-green-600': metrics?.velocity?.trend==='up',
+                             'text-red-600':   metrics?.velocity?.trend==='down',
+                             'text-gray-400':  metrics?.velocity?.trend==='stable' }"
+                  x-text="trendArrow(metrics?.velocity?.trend)"></span>
+          </div>
+          <p class="mt-1 text-xs text-gray-400">
+            28-day avg: <span x-text="metrics?.velocity?.jobs_per_week_28d?.toFixed(1)"></span>/wk
+          </p>
+        </div>
+        <div class="card p-5">
+          <p class="text-xs font-semibold uppercase tracking-wider text-gray-400">Avg time-to-fill</p>
+          <p class="mt-2 text-3xl font-extrabold text-gray-900"
+             x-text="metrics?.avg_time_to_fill_days ? Math.round(metrics.avg_time_to_fill_days) + 'd' : '—'"></p>
+          <p class="mt-1 text-xs text-gray-400">across closed roles</p>
+        </div>
+        <div class="card p-5">
+          <p class="text-xs font-semibold uppercase tracking-wider text-gray-400">Total tracked</p>
+          <p class="mt-2 text-3xl font-extrabold text-gray-900" x-text="metrics?.total_jobs_tracked ?? '—'"></p>
+          <p class="mt-1 text-xs text-gray-400">
+            <span x-text="metrics?.jobs_filled_30d ?? 0"></span> filled last 30d
+          </p>
+        </div>
+      </div>
+
+      <!-- Charts row -->
+      <div class="mb-8 grid gap-6 lg:grid-cols-2">
+
+        <!-- Department breakdown -->
+        <div class="card p-6">
+          <h2 class="mb-4 text-sm font-semibold text-gray-900">Department breakdown</h2>
+          <div x-show="metrics?.departments?.total === 0" class="text-sm text-gray-400">No data yet.</div>
+          <div x-show="metrics?.departments?.total > 0" class="space-y-2">
+            <template x-for="[key, label] in deptFields()" :key="key">
+              <div x-show="metrics?.departments[key] > 0">
+                <div class="mb-1 flex justify-between text-xs">
+                  <span class="font-medium text-gray-700" x-text="label"></span>
+                  <span class="text-gray-500"
+                        x-text="metrics?.departments[key] + ' (' + pct(metrics?.departments[key], metrics?.departments.total) + ')'"></span>
+                </div>
+                <div class="h-2 rounded-full bg-gray-100">
+                  <div class="h-2 rounded-full bg-brand-600 transition-all"
+                       :style="`width:${pct(metrics?.departments[key], metrics?.departments.total)}`"></div>
+                </div>
+              </div>
+            </template>
+          </div>
+        </div>
+
+        <!-- Geo breakdown -->
+        <div class="card p-6">
+          <h2 class="mb-4 text-sm font-semibold text-gray-900">Geographic distribution</h2>
+          <div x-show="geoTotal() === 0" class="text-sm text-gray-400">No data yet.</div>
+          <div x-show="geoTotal() > 0" class="space-y-2">
+            <template x-for="[key, label, color] in geoFields()" :key="key">
+              <div x-show="metrics?.geo[key] > 0">
+                <div class="mb-1 flex justify-between text-xs">
+                  <span class="font-medium text-gray-700" x-text="label"></span>
+                  <span class="text-gray-500"
+                        x-text="metrics?.geo[key] + ' (' + pct(metrics?.geo[key], geoTotal()) + ')'"></span>
+                </div>
+                <div class="h-2 rounded-full bg-gray-100">
+                  <div class="h-2 rounded-full transition-all" :class="color"
+                       :style="`width:${pct(metrics?.geo[key], geoTotal())}`"></div>
+                </div>
+              </div>
+            </template>
+          </div>
+        </div>
+      </div>
+
+      <!-- Signals row -->
+      <div class="mb-8 grid gap-6 lg:grid-cols-2">
+
+        <!-- Expanding departments -->
+        <div class="card p-6" x-show="metrics?.expanding_departments?.length > 0">
+          <h2 class="mb-4 text-sm font-semibold text-gray-900">
+            📈 Department expansion <span class="font-normal text-gray-400">(vs 60 days ago)</span>
+          </h2>
+          <div class="space-y-3">
+            <template x-for="d in metrics?.expanding_departments" :key="d.department">
+              <div class="flex items-center justify-between">
+                <span class="text-sm font-medium text-gray-700 capitalize" x-text="d.department.replace('_',' ')"></span>
+                <div class="flex items-center gap-3">
+                  <span class="text-xs text-gray-400">
+                    <span x-text="d.count_60d"></span> → <span x-text="d.count_now"></span>
+                  </span>
+                  <span class="rounded-full bg-green-100 px-2 py-0.5 text-xs font-bold text-green-700"
+                        x-text="'+' + d.growth_pct + '%'"></span>
+                </div>
+              </div>
+            </template>
+          </div>
+        </div>
+
+        <!-- New regions -->
+        <div class="card p-6" x-show="metrics?.new_regions_30d?.length > 0">
+          <h2 class="mb-4 text-sm font-semibold text-gray-900">
+            🌍 New regions <span class="font-normal text-gray-400">(last 30 days)</span>
+          </h2>
+          <div class="flex flex-wrap gap-2">
+            <template x-for="region in metrics?.new_regions_30d" :key="region">
+              <span class="rounded-full bg-blue-50 px-3 py-1 text-sm font-medium text-blue-700 capitalize"
+                    x-text="region.replace('_', ' ')"></span>
+            </template>
+          </div>
+        </div>
+      </div>
+
+      <!-- Weekly velocity chart -->
+      <div class="card p-6 mb-8" x-show="metrics?.weekly_new_jobs?.length > 0">
+        <h2 class="mb-5 text-sm font-semibold text-gray-900">Hiring velocity — new roles per week</h2>
+        <div class="flex items-end gap-1 h-32">
+          <template x-for="week in metrics?.weekly_new_jobs" :key="week.week_start">
+            <div class="flex flex-1 flex-col items-center gap-1 min-w-0">
+              <span class="text-[10px] text-gray-400" x-text="week.new_jobs || ''"></span>
+              <div class="w-full rounded-t bg-brand-600 transition-all"
+                   :style="`height: ${maxWeeklyJobs() > 0 ? (week.new_jobs / maxWeeklyJobs() * 100) : 0}%`"
+                   :title="week.week_start + ': ' + week.new_jobs + ' jobs'"></div>
+              <span class="text-[9px] text-gray-300 rotate-90 origin-center mt-2 hidden lg:block"
+                    x-text="week.week_start.slice(5)"></span>
+            </div>
+          </template>
+        </div>
+      </div>
+
+      <!-- Active jobs table -->
+      <div class="card overflow-hidden">
+        <div class="flex items-center justify-between px-6 py-4 border-b border-gray-100">
+          <h2 class="text-sm font-semibold text-gray-900">
+            Active roles
+            <span class="ml-1 text-gray-400 font-normal" x-text="'(' + (jobs?.length ?? 0) + ')'"></span>
+          </h2>
+          <select x-model="deptFilter" @change="loadJobs()" class="field text-xs py-1 w-40">
+            <option value="">All departments</option>
+            <option value="engineering">Engineering</option>
+            <option value="product">Product</option>
+            <option value="sales">Sales</option>
+            <option value="marketing">Marketing</option>
+            <option value="design">Design</option>
+            <option value="data">Data</option>
+            <option value="operations">Operations</option>
+            <option value="people">People</option>
+            <option value="other">Other</option>
+          </select>
+        </div>
+        <div x-show="jobs?.length === 0" class="py-10 text-center text-sm text-gray-400">
+          No jobs tracked yet — run the worker to collect data.
+        </div>
+        <table x-show="jobs?.length > 0" class="min-w-full divide-y divide-gray-100">
+          <thead class="bg-gray-50">
+            <tr>
+              <th class="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wider text-gray-500">Role</th>
+              <th class="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wider text-gray-500 hidden sm:table-cell">Department</th>
+              <th class="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wider text-gray-500 hidden md:table-cell">Location</th>
+              <th class="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wider text-gray-500 hidden lg:table-cell">First seen</th>
+            </tr>
+          </thead>
+          <tbody class="divide-y divide-gray-50 bg-white">
+            <template x-for="job in jobs" :key="job.id">
+              <tr class="hover:bg-gray-50 transition-colors">
+                <td class="px-6 py-3">
+                  <a x-show="job.url" :href="job.url" target="_blank" rel="noopener"
+                     class="text-sm font-medium text-brand-600 hover:text-brand-700" x-text="job.title"></a>
+                  <span x-show="!job.url" class="text-sm font-medium text-gray-900" x-text="job.title"></span>
+                  <span x-show="job.is_remote" class="ml-2 rounded bg-green-100 px-1.5 py-0.5 text-[10px] font-medium text-green-700">Remote</span>
+                </td>
+                <td class="px-6 py-3 hidden sm:table-cell">
+                  <span class="rounded bg-gray-100 px-2 py-0.5 text-xs text-gray-600 capitalize"
+                        x-text="job.department_category.replace('_',' ')"></span>
+                </td>
+                <td class="px-6 py-3 text-xs text-gray-400 hidden md:table-cell" x-text="job.raw_location || '—'"></td>
+                <td class="px-6 py-3 text-xs text-gray-400 hidden lg:table-cell"
+                    x-text="daysAgo(job.first_seen_at)"></td>
+              </tr>
+            </template>
+          </tbody>
+        </table>
+      </div>
+
+    </div>
+  </div>
+
+  <script is:inline>
+    function companyPage() {
+      const params = new URLSearchParams(window.location.search);
+      const companyId = params.get('id');
+
+      return {
+        company:    null,
+        metrics:    null,
+        jobs:       [],
+        loading:    true,
+        toggling:   false,
+        isWatched:  false,
+        deptFilter: '',
+
+        async init() {
+          if (!companyId) { this.loading = false; return; }
+          await Promise.all([this.loadCompany(), this.loadMetrics(), this.loadJobs()]);
+          this.loading = false;
+        },
+
+        async loadCompany() {
+          const r = await fetch(`/api/companies?q=&limit=1&offset=0`);
+          // Fetch the specific company with its watch status by searching catalog
+          // (we do a targeted search using the catalog endpoint)
+          const catalog = await fetch(`/api/companies?limit=200`);
+          if (!catalog.ok) return;
+          const data = await catalog.json();
+          this.company = data.items?.find(c => c.id === companyId) || null;
+          if (this.company) this.isWatched = !!this.company.watcher_id;
+        },
+
+        async loadMetrics() {
+          const r = await fetch(`/api/companies/${companyId}/metrics`);
+          if (r.ok) this.metrics = await r.json();
+        },
+
+        async loadJobs() {
+          const params = new URLSearchParams({ status: 'active', limit: 100 });
+          if (this.deptFilter) params.set('department', this.deptFilter);
+          const r = await fetch(`/api/companies/${companyId}/jobs?${params}`);
+          if (r.ok) this.jobs = await r.json();
+        },
+
+        async watch() {
+          this.toggling = true;
+          const r = await fetch(`/api/companies/${companyId}/watch`, { method: 'POST' });
+          if (r.ok) { this.isWatched = true; }
+          else if (r.status === 402) { window.location.href = '/account'; }
+          this.toggling = false;
+        },
+
+        async unwatch() {
+          this.toggling = true;
+          await fetch(`/api/companies/${companyId}/watch`, { method: 'DELETE' });
+          this.isWatched = false;
+          this.toggling = false;
+        },
+
+        trendArrow(trend) {
+          return { up: '↑', down: '↓', stable: '→' }[trend] || '';
+        },
+
+        pct(n, total) {
+          if (!total) return '0%';
+          return Math.round(n / total * 100) + '%';
+        },
+
+        geoTotal() {
+          if (!this.metrics?.geo) return 0;
+          return Object.values(this.metrics.geo).reduce((a, b) => a + b, 0);
+        },
+
+        maxWeeklyJobs() {
+          return Math.max(...(this.metrics?.weekly_new_jobs?.map(w => w.new_jobs) ?? [0]));
+        },
+
+        deptFields() {
+          return [
+            ['engineering','Engineering'],['product','Product'],['sales','Sales'],
+            ['marketing','Marketing'],['design','Design'],['data','Data'],
+            ['operations','Operations'],['people','People'],['finance','Finance'],
+            ['legal','Legal'],['customer_success','Customer Success'],['other','Other'],
+          ];
+        },
+
+        geoFields() {
+          return [
+            ['remote','Remote','bg-green-500'],
+            ['us','United States','bg-blue-500'],
+            ['europe','Europe','bg-violet-500'],
+            ['apac','Asia Pacific','bg-orange-500'],
+            ['latam','Latin America','bg-teal-500'],
+            ['unknown','Unknown','bg-gray-300'],
+          ];
+        },
+
+        platformBadge(p) {
+          const m = {
+            greenhouse: 'bg-green-100 text-green-800',
+            lever:      'bg-blue-100 text-blue-800',
+            ashby:      'bg-violet-100 text-violet-800',
+            workday:    'bg-orange-100 text-orange-800',
+          };
+          return m[p] || 'bg-gray-100 text-gray-600';
+        },
+
+        daysAgo(iso) {
+          const d = Math.floor((Date.now() - new Date(iso)) / 86400000);
+          if (d === 0) return 'Today';
+          if (d === 1) return 'Yesterday';
+          return `${d}d ago`;
+        },
+      };
+    }
+  </script>
+</App>

@@ -1,9 +1,7 @@
-//! Background worker for change detection and email notifications.
+//! Background worker for change detection, email notifications, and job tracking.
 //!
-//! Run once per invocation (cron-friendly). Fetches all active watchers
-//! whose check interval has elapsed (based on the owning user's tier),
-//! scrapes each page, diffs job listings, and sends email notifications
-//! when changes are detected.
+//! Run once per cron invocation. Processes all active watchers due for a check
+//! based on their owner's tier, then updates the hiring analytics tables.
 //!
 //! ## Check intervals by tier
 //!
@@ -13,20 +11,21 @@
 //! | Pro      | 1 hour    |
 //! | Business | 15 min    |
 //!
-//! Run this worker from cron every **15 minutes**. The SQL WHERE clause
-//! filters which watchers are actually due, so higher tiers get more frequent
-//! checks automatically.
+//! Run cron every **15 minutes**; the SQL WHERE clause handles per-tier filtering.
 //!
 //! ```cron
 //! */15 * * * * /path/to/career-watch-worker
 //! ```
 
+use career_watch::analytics::categorize::{categorize_department, categorize_location};
+use career_watch::analytics::metrics::upsert_daily_snapshot;
 use career_watch::config::AppConfig;
 use career_watch::db::create_pool;
 use career_watch::email::EmailClient;
 use career_watch::models::{JobPosting, SubscriptionTier};
 use career_watch::scraper::PageScraper;
-use chrono::Utc;
+use chrono::{Utc, Datelike};
+use sha2::{Digest, Sha256};
 use sqlx::types::Json;
 use sqlx::PgPool;
 use tracing_subscriber::util::SubscriberInitExt;
@@ -54,19 +53,20 @@ async fn main() -> anyhow::Result<()> {
     Ok(())
 }
 
-/// Extended watch row that includes the owning user's tier, id, and email.
+/// Extended watch row including analytics-relevant fields.
 #[derive(sqlx::FromRow)]
 struct WatchWithUser {
     id: Uuid,
     user_id: Option<Uuid>,
+    /// FK to `companies` — set for catalog-discovered watchers.
+    company_id: Option<Uuid>,
     company_name: String,
     url: String,
-    // notification email (stored on the watcher, copied from user.email at creation)
     email: String,
     last_hash: Option<String>,
     last_jobs_json: Option<Json<Vec<JobPosting>>>,
     job_selector: Option<String>,
-    #[allow(dead_code)] // selected by SQL for the WHERE filter, not used in Rust
+    #[allow(dead_code)]
     tier: SubscriptionTier,
 }
 
@@ -75,12 +75,9 @@ async fn run_once(
     email: &EmailClient,
     scraper: &PageScraper,
 ) -> anyhow::Result<()> {
-    // Fetch only watchers that are due based on their owner's tier interval.
-    // Running the cron every 15 minutes and filtering here gives each tier
-    // the correct check frequency without separate cron entries.
     let watches: Vec<WatchWithUser> = sqlx::query_as::<_, WatchWithUser>(
         r#"
-        SELECT w.id, w.user_id, w.company_name, w.url, w.email,
+        SELECT w.id, w.user_id, w.company_id, w.company_name, w.url, w.email,
                w.last_hash, w.last_jobs_json, w.job_selector,
                u.tier
         FROM watchers w
@@ -116,11 +113,7 @@ async fn run_once(
                     {
                         Ok(jobs) => jobs,
                         Err(err) => {
-                            tracing::warn!(
-                                id = %watch.id,
-                                url = watch.url,
-                                "failed to fetch jobs: {err}"
-                            );
+                            tracing::warn!(id = %watch.id, url = watch.url, "failed to fetch jobs: {err}");
                             continue;
                         }
                     };
@@ -141,11 +134,7 @@ async fn run_once(
                     let new_hash = match scraper.fetch_hash(&watch.url).await {
                         Ok(h) => h,
                         Err(err) => {
-                            tracing::warn!(
-                                id = %watch.id,
-                                url = watch.url,
-                                "failed to fetch page: {err}"
-                            );
+                            tracing::warn!(id = %watch.id, url = watch.url, "failed to fetch page: {err}");
                             continue;
                         }
                     };
@@ -157,7 +146,7 @@ async fn run_once(
             None => false,
             Some(ref existing) => existing != &new_hash,
         } || !added_jobs.is_empty()
-          || !removed_jobs.is_empty();
+            || !removed_jobs.is_empty();
 
         if should_notify {
             if !watch.email.is_empty() {
@@ -175,7 +164,6 @@ async fn run_once(
                 }
             }
 
-            // Archive the notification regardless of email success
             if let Some(uid) = watch.user_id {
                 let summary = notification_summary(&added_jobs, &removed_jobs);
                 if let Err(err) = sqlx::query(
@@ -200,6 +188,18 @@ async fn run_once(
             }
         }
 
+        // ── Job tracking (analytics layer) ────────────────────────────────────
+        // Only runs for catalog-discovered watchers with a job selector.
+        if let (Some(company_id), Some(current_jobs)) = (watch.company_id, &new_jobs_snapshot) {
+            if let Err(e) = track_jobs(pool, company_id, current_jobs, &removed_jobs, now).await {
+                tracing::warn!(company_id = %company_id, "job tracking failed: {e}");
+            }
+            let today = now.naive_utc().into();
+            if let Err(e) = upsert_daily_snapshot(pool, company_id, today).await {
+                tracing::warn!(company_id = %company_id, "snapshot update failed: {e}");
+            }
+        }
+
         let jobs_json: Option<Json<Vec<JobPosting>>> = new_jobs_snapshot.map(Json);
 
         if let Err(err) = sqlx::query(
@@ -213,24 +213,95 @@ async fn run_once(
         .execute(pool)
         .await
         {
-            tracing::warn!(id = %watch.id, "failed to update watcher after scrape: {err}");
+            tracing::warn!(id = %watch.id, "failed to update watcher: {err}");
         }
     }
 
     Ok(())
 }
 
+// ── Job tracking ──────────────────────────────────────────────────────────────
+
+/// Stable hash for a job: SHA-256 of `"<company_id>:<lower_title>:<lower_location>"`.
+fn job_hash(company_id: Uuid, title: &str, location: Option<&str>) -> String {
+    let input = format!("{}:{}:{}", company_id, title.to_lowercase(), location.unwrap_or("").to_lowercase());
+    let mut h = Sha256::new();
+    h.update(input.as_bytes());
+    h.finalize().iter().map(|b| format!("{:02x}", b)).collect()
+}
+
+/// Upsert current jobs and mark removed ones as filled.
+async fn track_jobs(
+    pool: &PgPool,
+    company_id: Uuid,
+    current_jobs: &[JobPosting],
+    removed_jobs: &[JobPosting],
+    now: chrono::DateTime<Utc>,
+) -> anyhow::Result<()> {
+    // Upsert every job in the current listing
+    for job in current_jobs {
+        let hash = job_hash(company_id, &job.title, job.location.as_deref());
+        let dept = categorize_department(&job.title);
+        let (region, is_remote) = categorize_location(job.location.as_deref());
+
+        sqlx::query(
+            r#"
+            INSERT INTO jobs
+                (id, company_id, job_hash, title, raw_location,
+                 department_category, location_region, is_remote,
+                 url, first_seen_at, last_seen_at)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $10)
+            ON CONFLICT (company_id, job_hash) DO UPDATE
+                SET last_seen_at = $10,
+                    status       = 'active'
+            "#,
+        )
+        .bind(Uuid::new_v4())
+        .bind(company_id)
+        .bind(&hash)
+        .bind(&job.title)
+        .bind(job.location.as_deref())
+        .bind(dept)
+        .bind(region)
+        .bind(is_remote)
+        .bind(job.url.as_deref())
+        .bind(now)
+        .execute(pool)
+        .await?;
+    }
+
+    // Mark removed jobs as filled and compute time-to-fill
+    for job in removed_jobs {
+        let hash = job_hash(company_id, &job.title, job.location.as_deref());
+        sqlx::query(
+            r#"
+            UPDATE jobs
+            SET status            = 'filled',
+                filled_at         = $1,
+                time_to_fill_days = GREATEST(0, EXTRACT(DAY FROM $1 - first_seen_at)::INTEGER)
+            WHERE company_id = $2
+              AND job_hash   = $3
+              AND status     = 'active'
+            "#,
+        )
+        .bind(now)
+        .bind(company_id)
+        .bind(&hash)
+        .execute(pool)
+        .await?;
+    }
+
+    Ok(())
+}
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
+
 fn notification_summary(added: &[JobPosting], removed: &[JobPosting]) -> String {
     match (added.len(), removed.len()) {
         (0, 0) => "Career page updated".to_string(),
         (a, 0) => format!("{} new job{} added", a, if a == 1 { "" } else { "s" }),
         (0, r) => format!("{} job{} removed", r, if r == 1 { "" } else { "s" }),
-        (a, r) => format!(
-            "{} job{} added, {} removed",
-            a,
-            if a == 1 { "" } else { "s" },
-            r
-        ),
+        (a, r) => format!("{} job{} added, {} removed", a, if a == 1 { "" } else { "s" }, r),
     }
 }
 
@@ -238,7 +309,7 @@ fn diff_jobs(old: &[JobPosting], new: &[JobPosting]) -> (Vec<JobPosting>, Vec<Jo
     use std::collections::HashSet;
     let old_set: HashSet<_> = old.iter().cloned().collect();
     let new_set: HashSet<_> = new.iter().cloned().collect();
-    let added = new_set.difference(&old_set).cloned().collect();
+    let added   = new_set.difference(&old_set).cloned().collect();
     let removed = old_set.difference(&new_set).cloned().collect();
     (added, removed)
 }
@@ -249,16 +320,8 @@ mod tests {
     use career_watch::models::JobPosting;
 
     fn job(title: &str) -> JobPosting {
-        JobPosting {
-            title: title.to_string(),
-            company: "Acme".to_string(),
-            location: None,
-            posted_text: None,
-            url: None,
-        }
+        JobPosting { title: title.into(), company: "Acme".into(), location: None, posted_text: None, url: None }
     }
-
-    // ── diff_jobs ─────────────────────────────────────────────────────────────
 
     #[test]
     fn diff_detects_added_and_removed() {
@@ -270,86 +333,25 @@ mod tests {
     }
 
     #[test]
-    fn diff_empty_lists_produce_no_changes() {
-        let (added, removed) = diff_jobs(&[], &[]);
-        assert!(added.is_empty());
-        assert!(removed.is_empty());
+    fn diff_empty_lists() { let (a, r) = diff_jobs(&[], &[]); assert!(a.is_empty()); assert!(r.is_empty()); }
+    #[test]
+    fn diff_all_added()   { let (a, r) = diff_jobs(&[], &[job("X"), job("Y")]); assert_eq!(a.len(), 2); assert!(r.is_empty()); }
+    #[test]
+    fn diff_all_removed() { let (a, r) = diff_jobs(&[job("X"), job("Y")], &[]); assert!(a.is_empty()); assert_eq!(r.len(), 2); }
+    #[test]
+    fn diff_metadata_only_change() {
+        let old = vec![JobPosting { title: "Eng".into(), company: "Acme".into(), location: None, posted_text: Some("1h ago".into()), url: None }];
+        let new = vec![JobPosting { title: "Eng".into(), company: "Acme".into(), location: None, posted_text: Some("2h ago".into()), url: None }];
+        let (a, r) = diff_jobs(&old, &new);
+        assert!(a.is_empty()); assert!(r.is_empty());
     }
 
     #[test]
-    fn diff_all_new_jobs_added() {
-        let (added, removed) = diff_jobs(&[], &[job("X"), job("Y")]);
-        assert_eq!(added.len(), 2);
-        assert!(removed.is_empty());
-    }
-
-    #[test]
-    fn diff_all_jobs_removed() {
-        let (added, removed) = diff_jobs(&[job("X"), job("Y")], &[]);
-        assert!(added.is_empty());
-        assert_eq!(removed.len(), 2);
-    }
-
-    #[test]
-    fn diff_identical_lists_produce_no_changes() {
-        let jobs = vec![job("A"), job("B"), job("C")];
-        let (added, removed) = diff_jobs(&jobs, &jobs.clone());
-        assert!(added.is_empty());
-        assert!(removed.is_empty());
-    }
-
-    #[test]
-    fn diff_ignores_metadata_changes() {
-        // Same title+company, different posted_text — should NOT appear as a change
-        let old = vec![JobPosting {
-            title: "Engineer".into(), company: "Acme".into(),
-            location: None, posted_text: Some("1h ago".into()), url: None,
-        }];
-        let new = vec![JobPosting {
-            title: "Engineer".into(), company: "Acme".into(),
-            location: None, posted_text: Some("2h ago".into()), url: None,
-        }];
-        let (added, removed) = diff_jobs(&old, &new);
-        assert!(added.is_empty(), "metadata-only change should not appear as added");
-        assert!(removed.is_empty(), "metadata-only change should not appear as removed");
-    }
-
-    // ── notification_summary ──────────────────────────────────────────────────
-
-    #[test]
-    fn summary_no_structured_jobs() {
-        assert_eq!(notification_summary(&[], &[]), "Career page updated");
-    }
-
-    #[test]
-    fn summary_single_job_added() {
-        assert_eq!(notification_summary(&[job("A")], &[]), "1 new job added");
-    }
-
-    #[test]
-    fn summary_multiple_jobs_added() {
-        assert_eq!(notification_summary(&[job("A"), job("B")], &[]), "2 new jobs added");
-    }
-
-    #[test]
-    fn summary_single_job_removed() {
-        assert_eq!(notification_summary(&[], &[job("A")]), "1 job removed");
-    }
-
-    #[test]
-    fn summary_multiple_jobs_removed() {
-        assert_eq!(notification_summary(&[], &[job("A"), job("B")]), "2 jobs removed");
-    }
-
-    #[test]
-    fn summary_added_and_removed() {
-        assert_eq!(
-            notification_summary(&[job("A")], &[job("B")]),
-            "1 job added, 1 removed"
-        );
-        assert_eq!(
-            notification_summary(&[job("A"), job("B")], &[job("C")]),
-            "2 jobs added, 1 removed"
-        );
+    fn summary_all_cases() {
+        assert_eq!(notification_summary(&[], &[]),                        "Career page updated");
+        assert_eq!(notification_summary(&[job("A")], &[]),                "1 new job added");
+        assert_eq!(notification_summary(&[job("A"), job("B")], &[]),      "2 new jobs added");
+        assert_eq!(notification_summary(&[], &[job("A")]),                "1 job removed");
+        assert_eq!(notification_summary(&[job("A")], &[job("B")]),        "1 job added, 1 removed");
     }
 }

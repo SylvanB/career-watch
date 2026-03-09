@@ -1,5 +1,6 @@
 //! Core library crate for the Career Watch service.
 
+pub mod analytics;
 pub mod auth;
 pub mod billing;
 pub mod config;
