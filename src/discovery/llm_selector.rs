@@ -321,6 +321,77 @@ fn is_reader_lm(model: &str) -> bool {
     lower.contains("readerlm") || lower.contains("reader-lm") || lower.contains("reader_lm")
 }
 
+/// Strip code fences and normalise the JSON so it is always a bare array.
+///
+/// Models commonly return one of:
+/// - A bare array:                `[{...}, ...]`               ← ideal
+/// - Fenced bare array:           ` ```json\n[...]\n``` `      ← ReaderLM
+/// - Object wrapping the array:   `{"items": [...]}` etc.      ← small models
+/// - Truncated JSON:              `[{...}, {"title": "En`      ← long output
+///
+/// Returns the best attempt at a parseable array string.
+fn strip_and_normalise_json(raw: &str) -> String {
+    // 1. Strip ```json / ``` fences.
+    let s = raw.trim();
+    let s = s.strip_prefix("```json").or_else(|| s.strip_prefix("```"))
+        .unwrap_or(s)
+        .strip_suffix("```")
+        .unwrap_or(s)
+        .trim();
+
+    // 2. Object wrapper: {"items": [...]} / {"jobs": [...]} / {"data": [...]} etc.
+    if s.starts_with('{') {
+        if let Ok(obj) = serde_json::from_str::<serde_json::Value>(s) {
+            for key in &["items", "jobs", "results", "data", "listings", "openings", "positions"] {
+                if let Some(arr) = obj.get(key) {
+                    if arr.is_array() {
+                        if let Ok(json) = serde_json::to_string(arr) {
+                            return json;
+                        }
+                    }
+                }
+            }
+            // First array-valued field wins.
+            if let Some(obj_map) = obj.as_object() {
+                for v in obj_map.values() {
+                    if v.is_array() {
+                        if let Ok(json) = serde_json::to_string(v) {
+                            return json;
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // 3. Valid array — return as-is.
+    if serde_json::from_str::<serde_json::Value>(s).map(|v| v.is_array()).unwrap_or(false) {
+        return s.to_string();
+    }
+
+    // 4. Truncated array — salvage complete objects.
+    if let Some(start) = s.find('[') {
+        let fragment = &s[start..];
+        let mut depth = 0i32;
+        let mut last_complete = 0usize;
+        for (i, ch) in fragment.char_indices() {
+            match ch {
+                '{' => depth += 1,
+                '}' => {
+                    depth -= 1;
+                    if depth == 0 { last_complete = i + 1; }
+                }
+                _ => {}
+            }
+        }
+        if last_complete > 0 {
+            return format!("[{}]", &fragment[1..last_complete]);
+        }
+    }
+
+    s.to_string()
+}
+
 /// Extract structured job listings directly from HTML using a local LLM.
 ///
 /// Returns the full list of jobs on the page including title, location,
@@ -396,7 +467,8 @@ HTML:
         (p, schema_json)
     };
 
-    let raw = match ollama_chat(ollama_host, model, &prompt, format, 2048).await {
+    // 8192 gives headroom for large job boards (~50 jobs × ~80 tokens each).
+    let raw = match ollama_chat(ollama_host, model, &prompt, format, 8192).await {
         Ok(s) => s,
         Err(e) => {
             warn!(company = company_name, "Ollama extraction failed: {e}");
@@ -412,19 +484,12 @@ HTML:
         url: Option<String>,
     }
 
-    // ReaderLM wraps its output in ```json ... ``` fences — strip them.
-    let clean = raw.trim();
-    let clean = clean
-        .strip_prefix("```json").or_else(|| clean.strip_prefix("```"))
-        .unwrap_or(clean)
-        .strip_suffix("```")
-        .unwrap_or(clean)
-        .trim();
+    let clean = strip_and_normalise_json(&raw);
 
-    let llm_jobs: Vec<LlmJob> = match serde_json::from_str(clean) {
+    let llm_jobs: Vec<LlmJob> = match serde_json::from_str(&clean) {
         Ok(v) => v,
         Err(e) => {
-            warn!(company = company_name, "LLM extraction returned invalid JSON: {e} — raw: {}", &raw[..raw.len().min(200)]);
+            warn!(company = company_name, "LLM extraction returned invalid JSON: {e} — raw: {}", &raw[..raw.len().min(300)]);
             return Ok(None);
         }
     };
@@ -502,15 +567,37 @@ mod tests {
     }
 
     #[test]
-    fn strips_reader_lm_json_fences() {
-        let raw = "```json\n[{\"title\":\"Engineer\",\"department\":\"engineering\"}]\n```";
-        let clean = raw.trim();
-        let clean = clean
-            .strip_prefix("```json").or_else(|| clean.strip_prefix("```"))
-            .unwrap_or(clean)
-            .strip_suffix("```")
-            .unwrap_or(clean)
-            .trim();
-        assert_eq!(clean, "[{\"title\":\"Engineer\",\"department\":\"engineering\"}]");
+    fn normalise_bare_array() {
+        let r = strip_and_normalise_json(r#"[{"title":"Eng","department":"engineering"}]"#);
+        assert!(r.starts_with('['));
+    }
+
+    #[test]
+    fn normalise_fenced_array() {
+        let r = strip_and_normalise_json("```json\n[{\"title\":\"Eng\",\"department\":\"engineering\"}]\n```");
+        assert_eq!(r, "[{\"title\":\"Eng\",\"department\":\"engineering\"}]");
+    }
+
+    #[test]
+    fn normalise_items_wrapper() {
+        let r = strip_and_normalise_json(r#"{"items":[{"title":"Eng","department":"engineering"}]}"#);
+        assert!(r.starts_with('['), "should unwrap items object: {r}");
+    }
+
+    #[test]
+    fn normalise_jobs_wrapper() {
+        let r = strip_and_normalise_json(r#"{"jobs":[{"title":"PM","department":"product"}]}"#);
+        assert!(r.starts_with('['));
+    }
+
+    #[test]
+    fn normalise_truncated_array() {
+        // Simulates a cut-off response
+        let raw = r#"[{"title":"Engineer","department":"engineering"},{"title":"Des"#;
+        let r = strip_and_normalise_json(raw);
+        // Should salvage the first complete object
+        assert!(r.starts_with('['));
+        let parsed: serde_json::Value = serde_json::from_str(&r).expect("should be valid JSON");
+        assert_eq!(parsed.as_array().unwrap().len(), 1);
     }
 }
