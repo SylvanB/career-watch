@@ -30,6 +30,21 @@ pub async fn require_auth(
     mut req: Request,
     next: Next,
 ) -> Result<Response, StatusCode> {
+    // Log what cookies (if any) the API is actually receiving from the proxy.
+    let cookie_hdr = req.headers().get("cookie").and_then(|v| v.to_str().ok());
+    tracing::debug!(
+        path  = %req.uri().path(),
+        has_cookie_header = cookie_hdr.is_some(),
+        cookie_names = cookie_hdr
+            .map(|c| c.split(';')
+                .map(|p| p.split('=').next().unwrap_or("?").trim().to_string())
+                .collect::<Vec<_>>()
+                .join(", "))
+            .unwrap_or_default()
+            .as_str(),
+        "require_auth"
+    );
+
     let token = extract_session_token(&req).ok_or(StatusCode::UNAUTHORIZED)?;
 
     let user = get_user_by_token(&state.db, &token)
