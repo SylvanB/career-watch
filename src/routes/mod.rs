@@ -20,6 +20,7 @@ use crate::routes::{
     billing::{create_checkout, create_portal, stripe_webhook},
     health::health,
     me::me,
+    notifications::{list_notifications, mark_all_read},
     watches::{create_watch, delete_watch, list_watches},
 };
 use crate::AppState;
@@ -29,6 +30,7 @@ pub mod auth;
 pub mod billing;
 pub mod health;
 pub mod me;
+pub mod notifications;
 pub mod watches;
 
 /// Construct the root router with all route groups and middleware applied.
@@ -47,6 +49,8 @@ pub fn router(state: AppState) -> Router {
 
     let protected = Router::new()
         .route("/api/me", get(me))
+        .route("/api/notifications", get(list_notifications))
+        .route("/api/notifications/read-all", post(mark_all_read))
         .route("/api/watches", get(list_watches).post(create_watch))
         .route("/api/watches/:id", delete(delete_watch))
         .route("/billing/checkout", post(create_checkout))

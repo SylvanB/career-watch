@@ -118,7 +118,10 @@ pub async fn register(
         return Err(err(StatusCode::BAD_REQUEST, "invalid email address"));
     }
     if payload.password.len() < 8 {
-        return Err(err(StatusCode::BAD_REQUEST, "password must be at least 8 characters"));
+        return Err(err(
+            StatusCode::BAD_REQUEST,
+            "password must be at least 8 characters",
+        ));
     }
 
     let password_hash = hash_password(&payload.password)
@@ -148,26 +151,23 @@ pub async fn register(
             .await
         {
             Ok(cid) => {
-                let _ =
-                    sqlx::query("UPDATE users SET stripe_customer_id = $1 WHERE id = $2")
-                        .bind(&cid)
-                        .bind(user_id)
-                        .execute(&state.db)
-                        .await;
+                let _ = sqlx::query("UPDATE users SET stripe_customer_id = $1 WHERE id = $2")
+                    .bind(&cid)
+                    .bind(user_id)
+                    .execute(&state.db)
+                    .await;
             }
             Err(e) => tracing::warn!("Stripe customer creation failed: {e}"),
         }
     }
 
     // Send verification email (best-effort)
-    if let Ok(token) =
-        create_email_token(&state.db, user_id, "email_verification", 24 * 60).await
-    {
-        let url = format!(
-            "{}/auth/verify-email?token={}",
-            state.config.app_base_url, token
-        );
-        let _ = state.email.send_verification_email(&payload.email, &url).await;
+    if let Ok(token) = create_email_token(&state.db, user_id, "email_verification", 24 * 60).await {
+        let url = format!("{}/verify-email?token={}", state.config.app_base_url, token);
+        let _ = state
+            .email
+            .send_verification_email(&payload.email, &url)
+            .await;
     }
 
     let session = create_session(&state.db, user_id)
@@ -211,14 +211,19 @@ pub async fn login(
         .await
         .map_err(|_| err(StatusCode::INTERNAL_SERVER_ERROR, "internal error"))?;
 
-    let body = Json(AuthResponse { user_id, email, email_verified });
-    Ok(with_session_cookie(body, &session, state.config.cookie_secure))
+    let body = Json(AuthResponse {
+        user_id,
+        email,
+        email_verified,
+    });
+    Ok(with_session_cookie(
+        body,
+        &session,
+        state.config.cookie_secure,
+    ))
 }
 
-pub async fn logout(
-    State(state): State<AppState>,
-    req: axum::extract::Request,
-) -> Response {
+pub async fn logout(State(state): State<AppState>, req: axum::extract::Request) -> Response {
     if let Some(token) = read_session_cookie(req.headers()) {
         let _ = revoke_session(&state.db, &token).await;
     }
@@ -248,18 +253,15 @@ pub async fn forgot_password(
     State(state): State<AppState>,
     Json(payload): Json<ForgotPasswordRequest>,
 ) -> StatusCode {
-    if let Ok(Some((user_id, email))) = sqlx::query_as::<_, (Uuid, String)>(
-        "SELECT id, email FROM users WHERE email = $1",
-    )
-    .bind(&payload.email)
-    .fetch_optional(&state.db)
-    .await
+    if let Ok(Some((user_id, email))) =
+        sqlx::query_as::<_, (Uuid, String)>("SELECT id, email FROM users WHERE email = $1")
+            .bind(&payload.email)
+            .fetch_optional(&state.db)
+            .await
     {
-        if let Ok(token) =
-            create_email_token(&state.db, user_id, "password_reset", 60).await
-        {
+        if let Ok(token) = create_email_token(&state.db, user_id, "password_reset", 60).await {
             let url = format!(
-                "{}/auth/reset-password?token={}",
+                "{}/reset-password?token={}",
                 state.config.app_base_url, token
             );
             let _ = state.email.send_password_reset_email(&email, &url).await;
@@ -273,7 +275,10 @@ pub async fn reset_password(
     Json(payload): Json<ResetPasswordRequest>,
 ) -> Result<StatusCode, ApiError> {
     if payload.new_password.len() < 8 {
-        return Err(err(StatusCode::BAD_REQUEST, "password must be at least 8 characters"));
+        return Err(err(
+            StatusCode::BAD_REQUEST,
+            "password must be at least 8 characters",
+        ));
     }
 
     let user_id = consume_email_token(&state.db, &payload.token, "password_reset")

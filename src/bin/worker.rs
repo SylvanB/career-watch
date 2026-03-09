@@ -54,10 +54,11 @@ async fn main() -> anyhow::Result<()> {
     Ok(())
 }
 
-/// Extended watch row that includes the owning user's tier and email.
+/// Extended watch row that includes the owning user's tier, id, and email.
 #[derive(sqlx::FromRow)]
 struct WatchWithUser {
     id: Uuid,
+    user_id: Option<Uuid>,
     company_name: String,
     url: String,
     // notification email (stored on the watcher, copied from user.email at creation)
@@ -79,7 +80,7 @@ async fn run_once(
     // the correct check frequency without separate cron entries.
     let watches: Vec<WatchWithUser> = sqlx::query_as::<_, WatchWithUser>(
         r#"
-        SELECT w.id, w.company_name, w.url, w.email,
+        SELECT w.id, w.user_id, w.company_name, w.url, w.email,
                w.last_hash, w.last_jobs_json, w.job_selector,
                u.tier
         FROM watchers w
@@ -158,18 +159,44 @@ async fn run_once(
         } || !added_jobs.is_empty()
             || !removed_jobs.is_empty();
 
-        if should_notify && !watch.email.is_empty() {
-            if let Err(err) = email
-                .send_change_email(
-                    &watch.email,
-                    &watch.company_name,
-                    &watch.url,
-                    &added_jobs,
-                    &removed_jobs,
+        if should_notify {
+            if !watch.email.is_empty() {
+                if let Err(err) = email
+                    .send_change_email(
+                        &watch.email,
+                        &watch.company_name,
+                        &watch.url,
+                        &added_jobs,
+                        &removed_jobs,
+                    )
+                    .await
+                {
+                    tracing::warn!(id = %watch.id, "failed to send email: {err}");
+                }
+            }
+
+            // Archive the notification regardless of email success
+            if let Some(uid) = watch.user_id {
+                let summary = notification_summary(&added_jobs, &removed_jobs);
+                if let Err(err) = sqlx::query(
+                    r#"INSERT INTO notifications
+                       (id, user_id, watcher_id, company_name, career_url,
+                        summary, added_jobs, removed_jobs)
+                       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)"#,
                 )
+                .bind(Uuid::new_v4())
+                .bind(uid)
+                .bind(watch.id)
+                .bind(&watch.company_name)
+                .bind(&watch.url)
+                .bind(&summary)
+                .bind(Json(&added_jobs))
+                .bind(Json(&removed_jobs))
+                .execute(pool)
                 .await
-            {
-                tracing::warn!(id = %watch.id, "failed to send email: {err}");
+                {
+                    tracing::warn!(id = %watch.id, "failed to insert notification: {err}");
+                }
             }
         }
 
@@ -191,6 +218,20 @@ async fn run_once(
     }
 
     Ok(())
+}
+
+fn notification_summary(added: &[JobPosting], removed: &[JobPosting]) -> String {
+    match (added.len(), removed.len()) {
+        (0, 0) => "Career page updated".to_string(),
+        (a, 0) => format!("{} new job{} added", a, if a == 1 { "" } else { "s" }),
+        (0, r) => format!("{} job{} removed", r, if r == 1 { "" } else { "s" }),
+        (a, r) => format!(
+            "{} job{} added, {} removed",
+            a,
+            if a == 1 { "" } else { "s" },
+            r
+        ),
+    }
 }
 
 fn diff_jobs(old: &[JobPosting], new: &[JobPosting]) -> (Vec<JobPosting>, Vec<JobPosting>) {

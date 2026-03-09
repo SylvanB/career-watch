@@ -1,0 +1,254 @@
+---
+import App from '../layouts/App.astro';
+---
+
+<App title="Notifications">
+  <div x-data="notificationsPage()" x-init="init()">
+
+    <!-- Header -->
+    <div class="mb-8 flex items-center justify-between">
+      <div>
+        <h1 class="text-2xl font-bold text-gray-900">Notifications</h1>
+        <p class="mt-1 text-sm text-gray-500">
+          A history of every job change alert sent to you.
+        </p>
+      </div>
+      <button
+        x-show="unreadCount > 0"
+        @click="markAllRead()"
+        :disabled="markingRead"
+        class="btn-secondary text-sm"
+      >
+        <span x-text="markingRead ? 'Marking…' : 'Mark all as read'"></span>
+      </button>
+    </div>
+
+    <!-- Filter tabs -->
+    <div class="mb-6 flex gap-1 border-b border-gray-200">
+      <button
+        @click="filter = 'all'; load()"
+        :class="filter === 'all'
+          ? 'border-b-2 border-brand-600 text-brand-600'
+          : 'text-gray-500 hover:text-gray-700'"
+        class="px-4 py-2 text-sm font-medium -mb-px transition-colors"
+      >
+        All
+      </button>
+      <button
+        @click="filter = 'unread'; load()"
+        :class="filter === 'unread'
+          ? 'border-b-2 border-brand-600 text-brand-600'
+          : 'text-gray-500 hover:text-gray-700'"
+        class="px-4 py-2 text-sm font-medium -mb-px transition-colors flex items-center gap-1.5"
+      >
+        Unread
+        <span
+          x-show="unreadCount > 0"
+          x-text="unreadCount"
+          class="rounded-full bg-brand-600 px-1.5 py-0.5 text-[10px] font-bold text-white"
+        ></span>
+      </button>
+    </div>
+
+    <!-- Loading -->
+    <div x-show="loading" class="space-y-3">
+      <template x-for="i in [1,2,3,4,5]">
+        <div class="h-20 animate-pulse rounded-lg bg-gray-100"></div>
+      </template>
+    </div>
+
+    <!-- Empty state -->
+    <div
+      x-show="!loading && notifications.length === 0"
+      class="card flex flex-col items-center justify-center py-20 text-center"
+    >
+      <svg class="h-12 w-12 text-gray-300 mb-4" fill="none" viewBox="0 0 24 24" stroke-width="1" stroke="currentColor">
+        <path stroke-linecap="round" stroke-linejoin="round" d="M14.857 17.082a23.848 23.848 0 005.454-1.31A8.967 8.967 0 0118 9.75v-.7V9A6 6 0 006 9v.75a8.967 8.967 0 01-2.312 6.022c1.733.64 3.56 1.085 5.455 1.31m5.714 0a24.255 24.255 0 01-5.714 0m5.714 0a3 3 0 11-5.714 0" />
+      </svg>
+      <h3 class="text-base font-semibold text-gray-900 mb-1" x-text="filter === 'unread' ? 'No unread notifications' : 'No notifications yet'"></h3>
+      <p class="text-sm text-gray-500 max-w-xs" x-text="filter === 'unread' ? 'You\'re all caught up.' : 'Alerts will appear here once a watched career page changes.'"></p>
+    </div>
+
+    <!-- Notification list -->
+    <div x-show="!loading && notifications.length > 0" class="space-y-2">
+
+      <template x-for="(group, date) in grouped()" :key="date">
+        <div>
+          <!-- Date group header -->
+          <p class="mb-2 mt-6 first:mt-0 text-xs font-semibold uppercase tracking-wider text-gray-400" x-text="date"></p>
+
+          <div class="card divide-y divide-gray-100 overflow-hidden">
+            <template x-for="n in group" :key="n.id">
+              <div
+                class="flex items-start gap-4 px-5 py-4 transition-colors"
+                :class="!n.read_at ? 'bg-blue-50/50' : 'hover:bg-gray-50'"
+              >
+                <!-- Unread dot -->
+                <div class="mt-1.5 flex-shrink-0">
+                  <div
+                    class="h-2 w-2 rounded-full"
+                    :class="!n.read_at ? 'bg-brand-600' : 'bg-gray-200'"
+                  ></div>
+                </div>
+
+                <!-- Content -->
+                <div class="min-w-0 flex-1">
+                  <div class="flex items-start justify-between gap-4">
+                    <div>
+                      <p
+                        class="text-sm"
+                        :class="!n.read_at ? 'font-semibold text-gray-900' : 'font-medium text-gray-700'"
+                        x-text="n.company_name"
+                      ></p>
+                      <p class="mt-0.5 text-sm text-gray-500" x-text="n.summary"></p>
+
+                      <!-- Job titles (if available) -->
+                      <div x-show="n.added_jobs?.length > 0" class="mt-2 space-y-0.5">
+                        <template x-for="job in n.added_jobs.slice(0, 3)" :key="job.title">
+                          <p class="text-xs text-green-700">
+                            <span class="font-medium">+</span> <span x-text="job.title"></span>
+                          </p>
+                        </template>
+                        <p
+                          x-show="n.added_jobs.length > 3"
+                          class="text-xs text-gray-400"
+                          x-text="`+ ${n.added_jobs.length - 3} more`"
+                        ></p>
+                      </div>
+                      <div x-show="n.removed_jobs?.length > 0" class="mt-1 space-y-0.5">
+                        <template x-for="job in n.removed_jobs.slice(0, 2)" :key="job.title">
+                          <p class="text-xs text-red-600">
+                            <span class="font-medium">−</span> <span x-text="job.title"></span>
+                          </p>
+                        </template>
+                        <p
+                          x-show="n.removed_jobs.length > 2"
+                          class="text-xs text-gray-400"
+                          x-text="`+ ${n.removed_jobs.length - 2} more`"
+                        ></p>
+                      </div>
+                    </div>
+
+                    <div class="flex-shrink-0 text-right">
+                      <p class="text-xs text-gray-400" x-text="timeAgo(n.created_at)"></p>
+                      <a
+                        :href="n.career_url"
+                        target="_blank"
+                        rel="noopener"
+                        class="mt-1 inline-block text-xs text-brand-600 hover:text-brand-700"
+                      >
+                        View page ↗
+                      </a>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </template>
+          </div>
+        </div>
+      </template>
+
+      <!-- Load more -->
+      <div x-show="hasMore" class="pt-4 text-center">
+        <button @click="loadMore()" :disabled="loadingMore" class="btn-secondary text-sm">
+          <span x-text="loadingMore ? 'Loading…' : 'Load more'"></span>
+        </button>
+      </div>
+    </div>
+
+  </div>
+
+  <script is:inline>
+    const PAGE_SIZE = 50;
+
+    function notificationsPage() {
+      return {
+        notifications: [],
+        filter: 'all',
+        loading: true,
+        loadingMore: false,
+        markingRead: false,
+        offset: 0,
+        hasMore: false,
+        unreadCount: 0,
+
+        async init() {
+          window.addEventListener('user-loaded', (e) => {
+            this.unreadCount = e.detail.unread_notifications ?? 0;
+          });
+          await this.load();
+        },
+
+        async load() {
+          this.loading = true;
+          this.offset = 0;
+          this.notifications = [];
+          const data = await this.fetch(0);
+          this.notifications = data;
+          this.hasMore = data.length === PAGE_SIZE;
+          this.loading = false;
+          // Refresh unread count from fresh data
+          this.unreadCount = this.notifications.filter(n => !n.read_at).length;
+        },
+
+        async loadMore() {
+          this.loadingMore = true;
+          this.offset += PAGE_SIZE;
+          const data = await this.fetch(this.offset);
+          this.notifications = [...this.notifications, ...data];
+          this.hasMore = data.length === PAGE_SIZE;
+          this.loadingMore = false;
+        },
+
+        async fetch(offset) {
+          const params = new URLSearchParams({
+            limit: PAGE_SIZE,
+            offset,
+            ...(this.filter === 'unread' ? { unread_only: 'true' } : {}),
+          });
+          const res = await fetch(`/api/notifications?${params}`);
+          return res.ok ? res.json() : [];
+        },
+
+        async markAllRead() {
+          this.markingRead = true;
+          await fetch('/api/notifications/read-all', { method: 'POST' });
+          this.notifications = this.notifications.map(n => ({ ...n, read_at: new Date().toISOString() }));
+          this.unreadCount = 0;
+          this.markingRead = false;
+        },
+
+        // Group notifications by human-readable date label
+        grouped() {
+          const groups = {};
+          for (const n of this.notifications) {
+            const label = this.dateLabel(n.created_at);
+            if (!groups[label]) groups[label] = [];
+            groups[label].push(n);
+          }
+          return groups;
+        },
+
+        dateLabel(iso) {
+          const d = new Date(iso);
+          const now = new Date();
+          const diffDays = Math.floor((now - d) / 86400000);
+          if (diffDays === 0) return 'Today';
+          if (diffDays === 1) return 'Yesterday';
+          if (diffDays < 7) return d.toLocaleDateString(undefined, { weekday: 'long' });
+          if (diffDays < 30) return 'Earlier this month';
+          return d.toLocaleDateString(undefined, { month: 'long', year: 'numeric' });
+        },
+
+        timeAgo(iso) {
+          const s = Math.floor((Date.now() - new Date(iso)) / 1000);
+          if (s < 60) return 'just now';
+          if (s < 3600) return `${Math.floor(s / 60)}m ago`;
+          if (s < 86400) return `${Math.floor(s / 3600)}h ago`;
+          if (s < 604800) return `${Math.floor(s / 86400)}d ago`;
+          return new Date(iso).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+        },
+      };
+    }
+  </script>
+</App>
