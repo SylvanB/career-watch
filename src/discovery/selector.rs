@@ -31,14 +31,53 @@ const MIN_TITLE_LEN: usize = 4;
 ///
 /// Returns `Some(selector)` when a reliable selector is found, `None` when
 /// the page structure is too ambiguous (e.g. JS-rendered SPAs).
+///
+/// Platform shortcuts are tried first, but only accepted if they actually
+/// match on the fetched HTML — this guards against pages that embed jobs via
+/// JS/iframe and would produce 0 matches with the known selector.
 pub fn detect_job_selector(html: &str, platform: &Platform) -> Option<String> {
-    // Platform shortcuts — selectors for known ATS boards are stable.
     if let Some(sel) = platform_selector(platform) {
-        return Some(sel.to_string());
+        if selector_hit_count(html, sel) >= MIN_JOB_COUNT {
+            return Some(sel.to_string());
+        }
+        // Platform selector didn't match — ATS page may use an iframe or JS
+        // render. Fall through to generic detection rather than storing a
+        // selector that would extract nothing.
     }
 
-    // Generic scan for custom career pages.
     detect_generic_selector(html)
+}
+
+/// Count how many elements a CSS selector matches in the given HTML.
+/// Returns 0 for invalid selectors.
+pub fn selector_hit_count(html: &str, selector: &str) -> usize {
+    let document = Html::parse_document(html);
+    match Selector::parse(selector) {
+        Ok(sel) => document.select(&sel).count(),
+        Err(_)  => 0,
+    }
+}
+
+/// Run a selector and return up to `limit` non-empty title strings.
+/// Used by the test endpoint to give users a live preview.
+pub fn selector_sample(html: &str, selector: &str, limit: usize) -> Vec<String> {
+    let document = Html::parse_document(html);
+    let Ok(sel) = Selector::parse(selector) else { return vec![] };
+
+    document
+        .select(&sel)
+        .filter_map(|el| {
+            let text = el
+                .text()
+                .collect::<String>()
+                .split_whitespace()
+                .collect::<Vec<_>>()
+                .join(" ");
+            let text = text.trim().to_string();
+            if text.len() >= MIN_TITLE_LEN { Some(text) } else { None }
+        })
+        .take(limit)
+        .collect()
 }
 
 /// Hardcoded selectors for known ATS platforms.
@@ -198,27 +237,80 @@ mod tests {
 
     // ── Platform shortcuts ────────────────────────────────────────────────────
 
-    #[test]
-    fn greenhouse_returns_known_selector() {
-        let sel = detect_job_selector("", &Platform::Greenhouse);
-        assert_eq!(sel.as_deref(), Some("div.opening a"));
+    fn greenhouse_html() -> &'static str {
+        r#"<div class="opening"><a href="/jobs/1">Senior Engineer</a><span class="location">SF</span></div>
+           <div class="opening"><a href="/jobs/2">Product Manager</a><span class="location">NY</span></div>
+           <div class="opening"><a href="/jobs/3">Data Scientist</a><span class="location">Remote</span></div>"#
+    }
+
+    fn lever_html() -> &'static str {
+        r#"<div class="posting"><h5>Backend Engineer</h5></div>
+           <div class="posting"><h5>Frontend Engineer</h5></div>
+           <div class="posting"><h5>Product Designer</h5></div>"#
     }
 
     #[test]
-    fn lever_returns_known_selector() {
-        let sel = detect_job_selector("", &Platform::Lever);
+    fn greenhouse_selector_validated_against_html() {
+        let sel = detect_job_selector(greenhouse_html(), &Platform::Greenhouse);
+        assert_eq!(sel.as_deref(), Some("div.opening a"),
+            "Greenhouse selector should be accepted when HTML matches");
+    }
+
+    #[test]
+    fn greenhouse_falls_back_when_html_empty() {
+        // Empty HTML → 0 matches → fall through to generic (also None here)
+        let sel = detect_job_selector("", &Platform::Greenhouse);
+        assert!(sel.is_none(),
+            "Empty HTML should not accept the Greenhouse platform shortcut");
+    }
+
+    #[test]
+    fn lever_selector_validated_against_html() {
+        let sel = detect_job_selector(lever_html(), &Platform::Lever);
         assert_eq!(sel.as_deref(), Some("div.posting h5"));
     }
 
     #[test]
-    fn ashby_returns_none() {
-        // Ashby renders via JS — selector detection not reliable
+    fn lever_falls_back_to_generic_when_html_empty() {
+        let sel = detect_job_selector("", &Platform::Lever);
+        assert!(sel.is_none());
+    }
+
+    #[test]
+    fn ashby_has_no_platform_shortcut() {
+        // Ashby has no hardcoded shortcut — falls through to generic detection.
+        // On empty HTML, generic detection also returns None.
         assert!(detect_job_selector("", &Platform::Ashby).is_none());
+        // On HTML with job-card markup, generic detection still finds something.
+        let html = r#"<div class="job-card">Eng</div><div class="job-card">PM</div><div class="job-card">Design</div>"#;
+        assert!(detect_job_selector(html, &Platform::Ashby).is_some(),
+            "generic detection should still work for Ashby pages that have job-card markup");
     }
 
     #[test]
     fn workday_returns_none() {
         assert!(detect_job_selector("", &Platform::Workday).is_none());
+    }
+
+    #[test]
+    fn selector_hit_count_counts_matches() {
+        assert_eq!(selector_hit_count(greenhouse_html(), "div.opening a"), 3);
+        assert_eq!(selector_hit_count(greenhouse_html(), "div.opening"), 3);
+        assert_eq!(selector_hit_count(greenhouse_html(), ".nonexistent"), 0);
+        assert_eq!(selector_hit_count("", "div.opening a"), 0);
+    }
+
+    #[test]
+    fn selector_sample_returns_titles() {
+        let sample = selector_sample(greenhouse_html(), "div.opening a", 5);
+        assert_eq!(sample.len(), 3);
+        assert!(sample.contains(&"Senior Engineer".to_string()));
+    }
+
+    #[test]
+    fn selector_sample_respects_limit() {
+        let sample = selector_sample(greenhouse_html(), "div.opening a", 2);
+        assert_eq!(sample.len(), 2);
     }
 
     // ── Generic detection ─────────────────────────────────────────────────────

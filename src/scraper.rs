@@ -26,6 +26,20 @@ impl PageScraper {
         Self { client }
     }
 
+    /// Fetch a URL and return the raw HTML body.
+    pub async fn fetch_raw_html(&self, url: &str) -> Result<String> {
+        self.client
+            .get(url)
+            .send()
+            .await
+            .context("failed to fetch page")?
+            .error_for_status()
+            .context("unexpected HTTP status")?
+            .text()
+            .await
+            .context("failed to read page body")
+    }
+
     /// Fetch a URL and return a SHA-256 hash of the response body.
     ///
     /// The hash is returned as a lowercase hex string. Any network or HTTP

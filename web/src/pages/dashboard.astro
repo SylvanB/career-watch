@@ -267,6 +267,46 @@ import App from '../layouts/App.astro';
             </div>
           </div>
 
+          <!-- Live test panel -->
+          <div x-show="editForm.job_selector" class="rounded-md border border-gray-200 overflow-hidden">
+            <div class="flex items-center justify-between bg-gray-50 px-3 py-2 border-b border-gray-200">
+              <span class="text-xs font-medium text-gray-600">Selector test</span>
+              <button type="button" @click="testSelector()"
+                :disabled="testLoading"
+                class="text-xs font-medium text-brand-600 hover:text-brand-700 disabled:opacity-50">
+                <span x-text="testLoading ? 'Testing…' : 'Run test ↺'"></span>
+              </button>
+            </div>
+            <div class="px-3 py-2.5 min-h-[3rem]">
+              <!-- Untested state -->
+              <p x-show="!testResult && !testLoading"
+                 class="text-xs text-gray-400 italic">
+                Click "Run test" to check how many jobs this selector finds on the live page.
+              </p>
+              <!-- Loading -->
+              <p x-show="testLoading" class="text-xs text-gray-400">Fetching page…</p>
+              <!-- Result -->
+              <div x-show="testResult && !testLoading">
+                <p class="text-xs font-semibold mb-1"
+                   :class="{
+                     'text-green-700': testResult?.count >= 2,
+                     'text-amber-600': testResult?.count === 1,
+                     'text-red-600':   testResult?.count === 0
+                   }">
+                  <span x-text="testResult?.count"></span> matches
+                  <span class="font-normal ml-1" x-text="'— ' + testResult?.verdict"></span>
+                </p>
+                <div x-show="testResult?.sample?.length > 0" class="mt-1.5 space-y-0.5">
+                  <template x-for="title in testResult?.sample" :key="title">
+                    <p class="truncate font-mono text-[11px] text-gray-500" x-text="title"></p>
+                  </template>
+                </div>
+              </div>
+              <!-- Error -->
+              <p x-show="testError" class="text-xs text-red-600" x-text="testError"></p>
+            </div>
+          </div>
+
           <div class="alert-info text-xs">
             Saving resets the baseline — the next worker run will re-establish
             what "current" looks like with the new selector.
@@ -299,6 +339,9 @@ import App from '../layouts/App.astro';
         editForm: { url: '', job_selector: '' },
         editError: '',
         editLoading: false,
+        testResult: null,
+        testError: '',
+        testLoading: false,
 
         async init() {
           // Wait for the app shell to load the user
@@ -353,10 +396,38 @@ import App from '../layouts/App.astro';
         },
 
         openEdit(w) {
-          this.editTarget = w;
-          this.editForm   = { url: w.url, job_selector: w.job_selector || '' };
-          this.editError  = '';
+          this.editTarget  = w;
+          this.editForm    = { url: w.url, job_selector: w.job_selector || '' };
+          this.editError   = '';
+          this.testResult  = null;
+          this.testError   = '';
           this.showEditModal = true;
+        },
+
+        async testSelector() {
+          this.testResult  = null;
+          this.testError   = '';
+          this.testLoading = true;
+          try {
+            const res = await fetch('/api/selector-test', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                url:      this.editForm.url,
+                selector: this.editForm.job_selector,
+              }),
+            });
+            if (res.ok) {
+              this.testResult = await res.json();
+            } else {
+              const d = await res.json();
+              this.testError = d.error || 'Test failed.';
+            }
+          } catch {
+            this.testError = 'Could not reach the server.';
+          } finally {
+            this.testLoading = false;
+          }
         },
 
         async saveEdit() {
