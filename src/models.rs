@@ -161,19 +161,18 @@ pub struct CreateWatchRequest {
 
 /// A single job posting extracted from a career page.
 ///
-/// Identity is based solely on `title` + `company`. Fields like `posted_text`
-/// are metadata that change between scrapes (e.g. "14 minutes ago" → "1 hour ago")
-/// and must not affect equality or hashing — otherwise every scrape would
-/// incorrectly report every job as added/removed.
+/// Identity is based solely on `title` + `company`. All other fields are
+/// metadata that may change between scrapes and must not affect equality
+/// or hashing — otherwise every scrape would report every job as changed.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct JobPosting {
     pub title: String,
     pub company: String,
     pub location: Option<String>,
-    /// Free-form text representing when this job was posted.
-    /// Not used for equality — this changes between scrapes.
+    /// Normalised department category (e.g. "engineering", "sales").
+    /// Populated by LLM extraction; falls back to keyword inference.
+    pub department: Option<String>,
     pub posted_text: Option<String>,
-    /// Optional link to the job detail page.
     pub url: Option<String>,
 }
 
@@ -202,6 +201,7 @@ mod tests {
             title: title.to_string(),
             company: "Acme".to_string(),
             location: None,
+            department: None,
             posted_text: None,
             url: None,
         }
@@ -212,6 +212,7 @@ mod tests {
             title: title.to_string(),
             company: "Acme".to_string(),
             location: Some(location.to_string()),
+            department: None,
             posted_text: Some(posted.to_string()),
             url: Some(url.to_string()),
         }
@@ -234,8 +235,8 @@ mod tests {
 
     #[test]
     fn neq_different_company() {
-        let a = JobPosting { title: "Engineer".into(), company: "Acme".into(), location: None, posted_text: None, url: None };
-        let b = JobPosting { title: "Engineer".into(), company: "Globex".into(), location: None, posted_text: None, url: None };
+        let a = JobPosting { title: "Engineer".into(), company: "Acme".into(), location: None, department: None, posted_text: None, url: None };
+        let b = JobPosting { title: "Engineer".into(), company: "Globex".into(), location: None, department: None, posted_text: None, url: None };
         assert_ne!(a, b);
     }
 

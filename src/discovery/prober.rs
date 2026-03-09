@@ -793,25 +793,19 @@ pub struct LlmSelectorStrategy {
 impl ProbeStrategy for LlmSelectorStrategy {
     fn name(&self) -> &'static str { "llm_selector" }
 
-    async fn run(&self, ctx: &mut ProbeContext, _client: &Client) -> Result<()> {
+    async fn run(&self, ctx: &mut ProbeContext, client: &Client) -> Result<()> {
         if self.ollama_host.is_empty() {
             return Ok(());
         }
 
-        // We need the HTML of the best career page found so far.
-        // If the best candidate URL matches the homepage, use cached HTML;
-        // otherwise we'd need to re-fetch. Use homepage HTML as the source
-        // since it was already fetched by HomepageFetchStrategy.
         let (html, page_url) = match (&ctx.homepage_html, &ctx.homepage_final_url) {
             (Some(h), Some(u)) => (h.clone(), u.clone()),
             _ => return Ok(()),
         };
 
-        // If the best candidate already has both selectors, skip.
+        // Skip if best candidate already has a title_selector (static detection worked).
         if let Some(best) = ctx.best() {
-            if best.job_selector.is_some()
-                && best.title_selector.is_some()
-            {
+            if best.title_selector.is_some() {
                 return Ok(());
             }
         }
@@ -820,25 +814,35 @@ impl ProbeStrategy for LlmSelectorStrategy {
 
         match detect_selectors_via_llm(&html, &page_url, &self.ollama_host, &self.ollama_model).await {
             Ok(Some(result)) => {
-                // Update the best candidate in place, or add a new one.
-                if let Some(best) = ctx.candidates.iter_mut().max_by_key(|c| c.score) {
-                    best.job_selector      = Some(result.selector);
-                    best.title_selector    = result.title_within;
-                    best.location_selector = result.location_within;
-                    best.score            += 2; // LLM confirmation bonus
-                    info!(
-                        domain    = ctx.domain,
-                        selector  = best.job_selector.as_deref().unwrap_or(""),
-                        "LLM selector applied to best candidate"
-                    );
+                // The LLM found a URL hint but no selector — the current page has no
+                // jobs. Probe the hint URL directly, which may be the real ATS board.
+                if let Some(ref hint) = result.jobs_url_hint {
+                    if result.selector.is_empty() {
+                        info!(domain = ctx.domain, hint, "LLM found jobs URL hint — probing");
+                        if let Ok(Some(candidate)) = probe_url(client, hint, "llm_url_hint").await {
+                            ctx.add(candidate);
+                            return Ok(());
+                        }
+                    }
+                }
+
+                // Normal path: apply selectors to best candidate.
+                if !result.selector.is_empty() {
+                    if let Some(best) = ctx.candidates.iter_mut().max_by_key(|c| c.score) {
+                        best.job_selector      = Some(result.selector.clone());
+                        best.title_selector    = result.title_within.clone();
+                        best.location_selector = result.location_within.clone();
+                        best.score            += 2;
+                        info!(
+                            domain   = ctx.domain,
+                            selector = best.job_selector.as_deref().unwrap_or(""),
+                            "LLM selector applied"
+                        );
+                    }
                 }
             }
-            Ok(None) => {
-                debug!(domain = ctx.domain, "LLM returned no usable selector");
-            }
-            Err(e) => {
-                warn!(domain = ctx.domain, "LLM selector detection failed: {e}");
-            }
+            Ok(None) => debug!(domain = ctx.domain, "LLM returned no usable selector"),
+            Err(e)   => warn!(domain = ctx.domain, "LLM selector detection failed: {e}"),
         }
 
         Ok(())
@@ -862,19 +866,27 @@ impl CareerProber {
             .redirect(redirect::Policy::limited(5))
             .build()?;
 
+        let llm = LlmSelectorStrategy {
+            ollama_host:  ollama_host.to_string(),
+            ollama_model: ollama_model.to_string(),
+        };
+
         let pipeline = ProbePipeline::new(client)
+            // 1. Fetch and cache the homepage HTML.
             .with_strategy(HomepageFetchStrategy)
+            // 2. LLM (primary): identifies selectors and crawl hints from
+            //    the homepage HTML. Silently skipped when Ollama is not running.
+            .with_strategy(llm)
+            // 3. ATS embed detection (fast heuristic, no network calls).
             .with_strategy(AtsEmbedStrategy)
+            // 4. Follow career links from nav/footer.
             .with_strategy(HomepageLinkStrategy)
+            // 5. Career subdomains (jobs.company.com etc).
             .with_strategy(CareerSubdomainStrategy)
+            // 6. Sitemap / robots.txt
             .with_strategy(SitemapStrategy)
-            .with_strategy(PathProbeStrategy)
-            // Last resort: ask a local LLM to identify selectors.
-            // Silently skipped when Ollama is not configured or not running.
-            .with_strategy(LlmSelectorStrategy {
-                ollama_host: ollama_host.to_string(),
-                ollama_model: ollama_model.to_string(),
-            });
+            // 7. Common URL paths — HEAD-first fallback.
+            .with_strategy(PathProbeStrategy);
 
         Ok(Self { pipeline })
     }

@@ -169,6 +169,7 @@ pub fn extract_jobs_two_level(
             title,
             company: company_name.to_string(),
             location,
+            department: None, // populated by LLM extraction when available
             posted_text,
             url,
         });
@@ -250,6 +251,7 @@ pub fn extract_jobs_from_html(
             title,
             company: company_name.to_string(),
             location,
+            department: None, // populated by LLM extraction when available
             posted_text,
             url,
         });

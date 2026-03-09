@@ -20,6 +20,7 @@
 use career_watch::analytics::categorize::{categorize_department, categorize_location};
 use career_watch::analytics::metrics::upsert_daily_snapshot;
 use career_watch::config::AppConfig;
+use career_watch::discovery::llm_selector::extract_jobs_via_llm;
 use career_watch::db::create_pool;
 use career_watch::email::EmailClient;
 use career_watch::models::{JobPosting, SubscriptionTier};
@@ -48,7 +49,7 @@ async fn main() -> anyhow::Result<()> {
     let email = EmailClient::from_config(&config)?;
     let scraper = PageScraper::new();
 
-    run_once(&pool, &email, &scraper).await?;
+    run_once(&pool, &email, &scraper, &config.ollama_host, &config.ollama_model).await?;
 
     Ok(())
 }
@@ -76,6 +77,8 @@ async fn run_once(
     pool: &PgPool,
     email: &EmailClient,
     scraper: &PageScraper,
+    ollama_host: &str,
+    ollama_model: &str,
 ) -> anyhow::Result<()> {
     let watches: Vec<WatchWithUser> = sqlx::query_as::<_, WatchWithUser>(
         r#"
@@ -108,64 +111,93 @@ async fn run_once(
             "processing watcher"
         );
 
-        let (new_hash, added_jobs, removed_jobs, new_jobs_snapshot) =
-            match &watch.job_selector {
-                Some(selector) if !selector.trim().is_empty() => {
-                    let old_jobs: Vec<JobPosting> = watch
-                        .last_jobs_json
-                        .as_ref()
-                        .map(|Json(jobs)| jobs.clone())
-                        .unwrap_or_default();
+        // Fetch the page HTML once — used for both hash and job extraction.
+        let html = match scraper.fetch_raw_html(&watch.url).await {
+            Ok(h) => h,
+            Err(err) => {
+                tracing::warn!(id = %watch.id, url = watch.url, "failed to fetch page: {err}");
+                continue;
+            }
+        };
 
-                    let new_jobs = match scraper
-                        .fetch_jobs_with_selectors(
-                            &watch.url,
-                            selector,
-                            watch.title_selector.as_deref(),
-                            watch.location_selector.as_deref(),
-                            &watch.company_name,
-                        )
-                        .await
-                    {
-                        Ok(jobs) => jobs,
-                        Err(err) => {
-                            tracing::warn!(id = %watch.id, url = watch.url, "failed to fetch jobs: {err}");
-                            continue;
-                        }
-                    };
+        let new_hash = career_watch::scraper::hash_body(&html);
 
+        // Determine which extraction mode to use.
+        // Priority: LLM (when Ollama available) → CSS selectors → hash-only.
+        let has_selector = watch.job_selector.as_deref()
+            .map(|s| !s.trim().is_empty())
+            .unwrap_or(false);
+
+        let use_llm = !ollama_host.is_empty();
+
+        let (added_jobs, removed_jobs, new_jobs_snapshot) = if use_llm || has_selector {
+            let old_jobs: Vec<JobPosting> = watch
+                .last_jobs_json
+                .as_ref()
+                .map(|Json(jobs)| jobs.clone())
+                .unwrap_or_default();
+
+            // Try LLM extraction first; fall back to CSS selectors.
+            let new_jobs_opt: Option<Vec<JobPosting>> = if use_llm {
+                match extract_jobs_via_llm(&html, &watch.url, &watch.company_name, ollama_host, ollama_model).await {
+                    Ok(jobs) => jobs,
+                    Err(e) => {
+                        tracing::warn!(company = watch.company_name, "LLM extraction error: {e}");
+                        None
+                    }
+                }
+            } else {
+                None
+            };
+
+            // If LLM returned nothing (not configured, failed, or empty page),
+            // fall back to CSS selector extraction.
+            let new_jobs = match new_jobs_opt {
+                Some(jobs) => {
                     tracing::info!(
-                        company  = watch.company_name,
-                        selector = selector.as_str(),
-                        extracted = new_jobs.len(),
-                        previous  = old_jobs.len(),
+                        company   = watch.company_name,
+                        extracted = jobs.len(),
+                        mode      = "llm",
                         "job extraction complete"
                     );
-
-                    let (added, removed) = diff_jobs(&old_jobs, &new_jobs);
-
-                    let hash = match scraper.fetch_hash(&watch.url).await {
-                        Ok(h) => h,
-                        Err(err) => {
-                            tracing::warn!(id = %watch.id, "failed to fetch hash: {err}");
-                            continue;
-                        }
-                    };
-
-                    (hash, added, removed, Some(new_jobs))
+                    jobs
                 }
-                _ => {
-                    tracing::info!(company = watch.company_name, "no selector set — hash-only mode, skipping job tracking");
-                    let new_hash = match scraper.fetch_hash(&watch.url).await {
-                        Ok(h) => h,
-                        Err(err) => {
-                            tracing::warn!(id = %watch.id, url = watch.url, "failed to fetch page: {err}");
-                            continue;
+                None if has_selector => {
+                    let selector = watch.job_selector.as_deref().unwrap();
+                    match scraper.fetch_jobs_with_selectors(
+                        &watch.url, selector,
+                        watch.title_selector.as_deref(),
+                        watch.location_selector.as_deref(),
+                        &watch.company_name,
+                    ).await {
+                        Ok(jobs) => {
+                            tracing::info!(
+                                company   = watch.company_name,
+                                selector  = selector,
+                                extracted = jobs.len(),
+                                mode      = "css",
+                                "job extraction complete"
+                            );
+                            jobs
                         }
-                    };
-                    (new_hash, Vec::new(), Vec::new(), None)
+                        Err(err) => {
+                            tracing::warn!(id = %watch.id, "CSS extraction failed: {err}");
+                            Vec::new()
+                        }
+                    }
+                }
+                None => {
+                    tracing::info!(company = watch.company_name, "LLM unavailable and no selector — hash-only");
+                    Vec::new()
                 }
             };
+
+            let (added, removed) = diff_jobs(&old_jobs, &new_jobs);
+            (added, removed, Some(new_jobs))
+        } else {
+            tracing::info!(company = watch.company_name, "hash-only mode (no Ollama, no selector)");
+            (Vec::new(), Vec::new(), None)
+        };
 
         let should_notify = match watch.last_hash {
             None => false,
@@ -289,7 +321,9 @@ async fn track_jobs(
     // Upsert every job in the current listing
     for job in current_jobs {
         let hash = job_hash(company_id, &job.title, job.location.as_deref());
-        let dept = categorize_department(&job.title);
+        // Use LLM-provided department when available; fall back to keyword inference.
+        let dept = job.department.as_deref()
+            .unwrap_or_else(|| categorize_department(&job.title));
         let (region, is_remote) = categorize_location(job.location.as_deref());
 
         sqlx::query(
@@ -368,7 +402,7 @@ mod tests {
     use career_watch::models::JobPosting;
 
     fn job(title: &str) -> JobPosting {
-        JobPosting { title: title.into(), company: "Acme".into(), location: None, posted_text: None, url: None }
+        JobPosting { title: title.into(), company: "Acme".into(), location: None, department: None, posted_text: None, url: None }
     }
 
     #[test]
@@ -388,8 +422,8 @@ mod tests {
     fn diff_all_removed() { let (a, r) = diff_jobs(&[job("X"), job("Y")], &[]); assert!(a.is_empty()); assert_eq!(r.len(), 2); }
     #[test]
     fn diff_metadata_only_change() {
-        let old = vec![JobPosting { title: "Eng".into(), company: "Acme".into(), location: None, posted_text: Some("1h ago".into()), url: None }];
-        let new = vec![JobPosting { title: "Eng".into(), company: "Acme".into(), location: None, posted_text: Some("2h ago".into()), url: None }];
+        let old = vec![JobPosting { title: "Eng".into(), company: "Acme".into(), location: None, department: None, posted_text: Some("1h ago".into()), url: None }];
+        let new = vec![JobPosting { title: "Eng".into(), company: "Acme".into(), location: None, department: None, posted_text: Some("2h ago".into()), url: None }];
         let (a, r) = diff_jobs(&old, &new);
         assert!(a.is_empty()); assert!(r.is_empty());
     }
