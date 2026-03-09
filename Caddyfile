@@ -2,16 +2,39 @@
     email admin@example.com
 }
 
+# ── Local dev ─────────────────────────────────────────────────────────────────
+# For day-to-day dev, use `make web-dev` instead — Astro's dev server
+# handles HMR and proxies API calls automatically.
+#
+# Use this when you want to test the full built stack locally:
+#   make web-build && caddy run
+
 career-watch.localhost {
-    reverse_proxy /api/* 127.0.0.1:8080
+    root * ./web/dist
+    file_server
 
-    @static {
-        not path /api/*
-    }
+    # SPA fallback: unknown paths serve index.html
+    try_files {path} /index.html
 
-    handle @static {
-        root * ./public
-        file_server
-    }
+    handle /api/*      { reverse_proxy localhost:8080 }
+    handle /auth/*     { reverse_proxy localhost:8080 }
+    handle /billing/*  { reverse_proxy localhost:8080 }
+    handle /admin/*    { reverse_proxy localhost:8080 }
+    handle /healthz    { reverse_proxy localhost:8080 }
 }
 
+# ── Production ────────────────────────────────────────────────────────────────
+# Uncomment and replace with your real domain.
+# Caddy provisions TLS via Let's Encrypt automatically.
+#
+# your-domain.com {
+#     root * /srv/career-watch/web/dist
+#     file_server
+#     try_files {path} /index.html
+#
+#     handle /api/*      { reverse_proxy localhost:8080 }
+#     handle /auth/*     { reverse_proxy localhost:8080 }
+#     handle /billing/*  { reverse_proxy localhost:8080 }
+#     handle /admin/*    { reverse_proxy localhost:8080 }
+#     handle /healthz    { reverse_proxy localhost:8080 }
+# }

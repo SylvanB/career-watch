@@ -1,0 +1,276 @@
+---
+import App from '../layouts/App.astro';
+---
+
+<App title="Account">
+  <div x-data="account()" x-init="init()">
+
+    <div class="mb-8">
+      <h1 class="text-2xl font-bold text-gray-900">Account &amp; Billing</h1>
+      <p class="mt-1 text-sm text-gray-500">Manage your plan, billing details, and account settings.</p>
+    </div>
+
+    <!-- Loading -->
+    <div x-show="loading" class="space-y-4">
+      <div class="h-36 animate-pulse rounded-lg bg-gray-100"></div>
+      <div class="h-48 animate-pulse rounded-lg bg-gray-100"></div>
+    </div>
+
+    <div x-show="!loading" class="space-y-6">
+
+      <!-- Current plan card -->
+      <div class="card p-6">
+        <h2 class="text-base font-semibold text-gray-900 mb-4">Current plan</h2>
+        <div class="flex items-start justify-between gap-4">
+          <div>
+            <div class="flex items-center gap-3 mb-2">
+              <span
+                class="text-2xl font-extrabold text-gray-900"
+                x-text="user ? tierName(user.tier) : '…'"
+              ></span>
+              <span
+                :class="{
+                  'badge-free': user?.tier === 'free',
+                  'badge-pro': user?.tier === 'pro',
+                  'badge-business': user?.tier === 'business'
+                }"
+                x-text="user?.tier === 'free' ? 'Free' : (user?.monthly_price_usd ? '$' + user.monthly_price_usd + '/mo' : '')"
+              ></span>
+            </div>
+
+            <!-- Watcher usage bar -->
+            <div class="mb-3">
+              <div class="flex items-center justify-between mb-1">
+                <span class="text-xs text-gray-500">Watchers used</span>
+                <span class="text-xs font-medium text-gray-700" x-text="`${watcherCount} / ${user?.max_watchers ?? '…'}`"></span>
+              </div>
+              <div class="h-2 w-64 rounded-full bg-gray-100">
+                <div
+                  class="h-2 rounded-full bg-brand-600 transition-all"
+                  :style="`width: ${usagePercent}%`"
+                  :class="{ 'bg-red-500': usagePercent >= 100, 'bg-amber-500': usagePercent >= 80 }"
+                ></div>
+              </div>
+            </div>
+
+            <p class="text-sm text-gray-500">
+              Check interval:
+              <span class="font-medium text-gray-700" x-text="intervalLabel(user?.check_interval_minutes)"></span>
+            </p>
+          </div>
+
+          <!-- Billing actions -->
+          <div class="flex flex-col gap-2 flex-shrink-0">
+            <button
+              x-show="user?.tier !== 'free'"
+              @click="openPortal()"
+              :disabled="portalLoading"
+              class="btn-secondary text-sm"
+            >
+              <span x-text="portalLoading ? 'Loading…' : 'Manage billing'"></span>
+            </button>
+          </div>
+        </div>
+
+        <!-- Error -->
+        <div x-show="error" class="alert-error mt-4 text-sm">
+          <span x-text="error"></span>
+        </div>
+      </div>
+
+      <!-- Upgrade section (only shown if not business) -->
+      <div x-show="user?.tier !== 'business'" class="card p-6">
+        <h2 class="text-base font-semibold text-gray-900 mb-1">Upgrade your plan</h2>
+        <p class="text-sm text-gray-500 mb-6">Get more watchers and faster checks.</p>
+
+        <div class="grid gap-4 sm:grid-cols-2">
+
+          <!-- Pro -->
+          <div
+            class="rounded-lg border p-5 flex flex-col gap-3"
+            :class="user?.tier === 'pro' ? 'border-brand-600 bg-brand-50' : 'border-gray-200'"
+          >
+            <div class="flex items-center justify-between">
+              <span class="font-semibold text-gray-900">Pro</span>
+              <span class="text-sm font-bold text-gray-900">$9<span class="font-normal text-gray-400">/mo</span></span>
+            </div>
+            <ul class="space-y-1.5 text-sm text-gray-600">
+              <li class="flex items-center gap-1.5">
+                <svg class="h-3.5 w-3.5 text-brand-600" fill="none" viewBox="0 0 24 24" stroke-width="2.5" stroke="currentColor">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M4.5 12.75l6 6 9-13.5" />
+                </svg>
+                25 watchers
+              </li>
+              <li class="flex items-center gap-1.5">
+                <svg class="h-3.5 w-3.5 text-brand-600" fill="none" viewBox="0 0 24 24" stroke-width="2.5" stroke="currentColor">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M4.5 12.75l6 6 9-13.5" />
+                </svg>
+                Hourly checks
+              </li>
+            </ul>
+            <button
+              x-show="user?.tier !== 'pro'"
+              @click="upgrade('pro')"
+              :disabled="checkoutLoading === 'pro'"
+              class="btn-primary text-sm mt-auto"
+            >
+              <span x-text="checkoutLoading === 'pro' ? 'Loading…' : 'Upgrade to Pro'"></span>
+            </button>
+            <div x-show="user?.tier === 'pro'" class="text-sm font-medium text-brand-700 mt-auto">
+              ✓ Current plan
+            </div>
+          </div>
+
+          <!-- Business -->
+          <div
+            class="rounded-lg border p-5 flex flex-col gap-3"
+            :class="user?.tier === 'business' ? 'border-brand-600 bg-brand-50' : 'border-gray-200'"
+          >
+            <div class="flex items-center justify-between">
+              <span class="font-semibold text-gray-900">Business</span>
+              <span class="text-sm font-bold text-gray-900">$29<span class="font-normal text-gray-400">/mo</span></span>
+            </div>
+            <ul class="space-y-1.5 text-sm text-gray-600">
+              <li class="flex items-center gap-1.5">
+                <svg class="h-3.5 w-3.5 text-brand-600" fill="none" viewBox="0 0 24 24" stroke-width="2.5" stroke="currentColor">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M4.5 12.75l6 6 9-13.5" />
+                </svg>
+                200 watchers
+              </li>
+              <li class="flex items-center gap-1.5">
+                <svg class="h-3.5 w-3.5 text-brand-600" fill="none" viewBox="0 0 24 24" stroke-width="2.5" stroke="currentColor">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M4.5 12.75l6 6 9-13.5" />
+                </svg>
+                15-minute checks
+              </li>
+            </ul>
+            <button
+              @click="upgrade('business')"
+              :disabled="checkoutLoading === 'business'"
+              class="btn-primary text-sm mt-auto"
+            >
+              <span x-text="checkoutLoading === 'business' ? 'Loading…' : 'Upgrade to Business'"></span>
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Account details -->
+      <div class="card p-6">
+        <h2 class="text-base font-semibold text-gray-900 mb-4">Account details</h2>
+        <dl class="space-y-3">
+          <div class="flex items-center justify-between py-2 border-b border-gray-100">
+            <dt class="text-sm text-gray-500">Email</dt>
+            <dd class="text-sm font-medium text-gray-900" x-text="user?.email"></dd>
+          </div>
+          <div class="flex items-center justify-between py-2 border-b border-gray-100">
+            <dt class="text-sm text-gray-500">Email verified</dt>
+            <dd class="text-sm font-medium">
+              <span x-show="user?.email_verified" class="text-green-700">✓ Verified</span>
+              <span x-show="!user?.email_verified" class="text-amber-600">Pending — check your inbox</span>
+            </dd>
+          </div>
+          <div class="flex items-center justify-between py-2">
+            <dt class="text-sm text-gray-500">Password</dt>
+            <dd>
+              <a href="/forgot-password" class="text-sm font-medium text-brand-600 hover:text-brand-700">Change password</a>
+            </dd>
+          </div>
+        </dl>
+      </div>
+
+    </div>
+  </div>
+
+  <script>
+    function account() {
+      return {
+        user: null,
+        watcherCount: 0,
+        loading: true,
+        error: '',
+        portalLoading: false,
+        checkoutLoading: null,
+
+        async init() {
+          window.addEventListener('user-loaded', (e) => {
+            this.user = e.detail;
+          });
+          await this.load();
+        },
+
+        async load() {
+          this.loading = true;
+          try {
+            const [meRes, watchRes] = await Promise.all([
+              fetch('/api/me'),
+              fetch('/api/watches'),
+            ]);
+            if (meRes.status === 401) { window.location.href = '/login'; return; }
+            this.user = await meRes.json();
+            const watches = await watchRes.json();
+            this.watcherCount = watches.length;
+          } finally {
+            this.loading = false;
+          }
+        },
+
+        async upgrade(plan) {
+          this.error = '';
+          this.checkoutLoading = plan;
+          try {
+            const res = await fetch('/billing/checkout', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ plan }),
+            });
+            if (res.ok) {
+              const { checkout_url } = await res.json();
+              window.location.href = checkout_url;
+            } else {
+              this.error = 'Failed to start checkout. Please try again.';
+            }
+          } catch {
+            this.error = 'Could not reach the server.';
+          } finally {
+            this.checkoutLoading = null;
+          }
+        },
+
+        async openPortal() {
+          this.error = '';
+          this.portalLoading = true;
+          try {
+            const res = await fetch('/billing/portal', { method: 'POST' });
+            if (res.ok) {
+              const { portal_url } = await res.json();
+              window.location.href = portal_url;
+            } else {
+              this.error = 'Failed to open billing portal. Please try again.';
+            }
+          } catch {
+            this.error = 'Could not reach the server.';
+          } finally {
+            this.portalLoading = false;
+          }
+        },
+
+        get usagePercent() {
+          if (!this.user) return 0;
+          return Math.min(100, Math.round((this.watcherCount / this.user.max_watchers) * 100));
+        },
+
+        tierName(tier) {
+          return { free: 'Free plan', pro: 'Pro', business: 'Business' }[tier] || tier;
+        },
+
+        intervalLabel(minutes) {
+          if (!minutes) return '…';
+          if (minutes >= 60 * 24) return 'Every 24 hours';
+          if (minutes >= 60) return `Every ${minutes / 60} hour${minutes > 60 ? 's' : ''}`;
+          return `Every ${minutes} minutes`;
+        },
+      };
+    }
+  </script>
+</App>

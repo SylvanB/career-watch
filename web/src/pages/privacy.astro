@@ -1,0 +1,49 @@
+---
+import Base from '../layouts/Base.astro';
+---
+
+<Base title="Privacy Policy">
+  <div class="mx-auto max-w-3xl px-6 py-16">
+    <a href="/" class="text-sm text-gray-400 hover:text-gray-600 mb-8 block">← Back to home</a>
+    <h1 class="text-3xl font-bold text-gray-900 mb-2">Privacy Policy</h1>
+    <p class="text-sm text-gray-400 mb-10">Last updated: March 2026</p>
+
+    <div class="prose prose-gray max-w-none text-sm leading-relaxed space-y-6 text-gray-600">
+      <p>Your privacy matters to us. This policy explains what data we collect, why, and how we protect it.</p>
+
+      <h2 class="text-base font-semibold text-gray-900 mt-8">Data we collect</h2>
+      <ul class="list-disc pl-5 space-y-1">
+        <li><strong>Account data</strong> — your email address and a hashed version of your password.</li>
+        <li><strong>Watcher data</strong> — the career page URLs and company names you choose to monitor.</li>
+        <li><strong>Billing data</strong> — handled entirely by Stripe. We never see or store your payment card details.</li>
+        <li><strong>Usage data</strong> — page check timestamps and change detection results.</li>
+      </ul>
+
+      <h2 class="text-base font-semibold text-gray-900 mt-8">How we use it</h2>
+      <ul class="list-disc pl-5 space-y-1">
+        <li>To provide the monitoring and alert service you signed up for.</li>
+        <li>To send transactional emails (alerts, verification, password reset, billing).</li>
+        <li>To improve the Service.</li>
+      </ul>
+      <p>We do not sell your data to third parties. We do not use it for advertising.</p>
+
+      <h2 class="text-base font-semibold text-gray-900 mt-8">Data storage</h2>
+      <p>Data is stored in a PostgreSQL database. Passwords are hashed with Argon2id and are never stored in plain text. Session tokens are stored as SHA-256 hashes.</p>
+
+      <h2 class="text-base font-semibold text-gray-900 mt-8">Third parties</h2>
+      <ul class="list-disc pl-5 space-y-1">
+        <li><strong>Stripe</strong> — payment processing. Subject to <a href="https://stripe.com/privacy" class="text-brand-600 hover:underline" target="_blank">Stripe's Privacy Policy</a>.</li>
+        <li><strong>SMTP provider</strong> — email delivery.</li>
+      </ul>
+
+      <h2 class="text-base font-semibold text-gray-900 mt-8">Your rights</h2>
+      <p>You may request deletion of your account and associated data at any time by emailing <a href="mailto:hello@careerwatch.io" class="text-brand-600 hover:underline">hello@careerwatch.io</a>. We will process requests within 30 days.</p>
+
+      <h2 class="text-base font-semibold text-gray-900 mt-8">Cookies</h2>
+      <p>We use a single HttpOnly session cookie (<code class="bg-gray-100 px-1 rounded">cw_session</code>) to keep you logged in. No tracking or advertising cookies are used.</p>
+
+      <h2 class="text-base font-semibold text-gray-900 mt-8">Contact</h2>
+      <p>Questions about this policy? Email <a href="mailto:hello@careerwatch.io" class="text-brand-600 hover:underline">hello@careerwatch.io</a>.</p>
+    </div>
+  </div>
+</Base>

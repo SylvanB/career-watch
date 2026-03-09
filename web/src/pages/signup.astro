@@ -1,0 +1,147 @@
+---
+import Base from '../layouts/Base.astro';
+---
+
+<Base title="Sign up">
+  <div class="min-h-screen bg-gray-50 flex flex-col justify-center py-12 px-4 sm:px-6 lg:px-8">
+    <div class="sm:mx-auto sm:w-full sm:max-w-md">
+      <a href="/" class="flex justify-center items-center gap-2 font-bold text-gray-900 text-xl tracking-tight">
+        <svg class="h-7 w-7 text-brand-600" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M2.25 12l8.954-8.955c.44-.439 1.152-.439 1.591 0L21.75 12M4.5 9.75v10.125c0 .621.504 1.125 1.125 1.125H9.75v-4.875c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125V21h4.125c.621 0 1.125-.504 1.125-1.125V9.75M8.25 21h8.25" />
+        </svg>
+        CareerWatch
+      </a>
+      <h2 class="mt-6 text-center text-2xl font-bold text-gray-900">Create your free account</h2>
+      <p class="mt-2 text-center text-sm text-gray-500">
+        Already have an account?
+        <a href="/login" class="font-semibold text-brand-600 hover:text-brand-700">Sign in</a>
+      </p>
+    </div>
+
+    <div class="mt-8 sm:mx-auto sm:w-full sm:max-w-md">
+      <div class="card px-8 py-10" x-data="signupForm()">
+
+        <!-- Success state -->
+        <div x-show="success" x-transition class="text-center py-4">
+          <div class="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-green-100">
+            <svg class="h-6 w-6 text-green-600" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M4.5 12.75l6 6 9-13.5" />
+            </svg>
+          </div>
+          <h3 class="font-semibold text-gray-900 mb-1">Account created!</h3>
+          <p class="text-sm text-gray-500 mb-4">
+            Check your inbox for a verification link, then head to your dashboard.
+          </p>
+          <a href="/dashboard" class="btn-primary w-full justify-center">Go to dashboard</a>
+        </div>
+
+        <!-- Form -->
+        <form x-show="!success" @submit.prevent="submit()" class="space-y-5">
+          <div x-show="error" x-transition class="alert-error">
+            <svg class="h-4 w-4 flex-shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126z" />
+            </svg>
+            <span x-text="error"></span>
+          </div>
+
+          <div>
+            <label for="email" class="label">Email address</label>
+            <input
+              id="email"
+              type="email"
+              autocomplete="email"
+              required
+              x-model="form.email"
+              class="field"
+              placeholder="you@example.com"
+            />
+          </div>
+
+          <div>
+            <label for="password" class="label">Password</label>
+            <input
+              id="password"
+              type="password"
+              autocomplete="new-password"
+              required
+              minlength="8"
+              x-model="form.password"
+              class="field"
+              placeholder="At least 8 characters"
+            />
+          </div>
+
+          <!-- Plan hint from query param -->
+          <div x-show="plan !== 'free'" class="alert-info text-xs">
+            <svg class="h-4 w-4 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M11.25 11.25l.041-.02a.75.75 0 011.063.852l-.708 2.836a.75.75 0 001.063.853l.041-.021M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+            </svg>
+            <span>You'll be taken to checkout after sign-up to complete your <strong x-text="plan"></strong> subscription.</span>
+          </div>
+
+          <button type="submit" class="btn-primary w-full" :disabled="loading">
+            <svg x-show="loading" class="animate-spin -ml-1 mr-2 h-4 w-4 text-white" fill="none" viewBox="0 0 24 24">
+              <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+              <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path>
+            </svg>
+            <span x-text="loading ? 'Creating account…' : 'Create account'"></span>
+          </button>
+
+          <p class="text-center text-xs text-gray-400">
+            By signing up you agree to our
+            <a href="/terms" class="underline hover:text-gray-600">Terms</a> and
+            <a href="/privacy" class="underline hover:text-gray-600">Privacy Policy</a>.
+          </p>
+        </form>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    function signupForm() {
+      const params = new URLSearchParams(window.location.search);
+      return {
+        form: { email: '', password: '' },
+        plan: params.get('plan') || 'free',
+        error: '',
+        success: false,
+        loading: false,
+
+        async submit() {
+          this.error = '';
+          this.loading = true;
+          try {
+            const res = await fetch('/auth/register', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(this.form),
+            });
+            if (res.ok) {
+              if (this.plan !== 'free') {
+                // Start checkout for paid plan
+                const co = await fetch('/billing/checkout', {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ plan: this.plan }),
+                });
+                if (co.ok) {
+                  const { checkout_url } = await co.json();
+                  window.location.href = checkout_url;
+                  return;
+                }
+              }
+              this.success = true;
+            } else {
+              const data = await res.json();
+              this.error = data.error || 'Something went wrong.';
+            }
+          } catch {
+            this.error = 'Could not reach the server. Please try again.';
+          } finally {
+            this.loading = false;
+          }
+        },
+      };
+    }
+  </script>
+</Base>

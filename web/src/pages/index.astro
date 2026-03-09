@@ -1,0 +1,190 @@
+---
+import Base from '../layouts/Base.astro';
+---
+
+<Base>
+  <!-- ── Nav ── -->
+  <nav class="mx-auto flex max-w-7xl items-center justify-between px-6 py-5">
+    <a href="/" class="flex items-center gap-2 font-bold text-gray-900 text-lg tracking-tight">
+      <svg class="h-6 w-6 text-brand-600" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
+        <path stroke-linecap="round" stroke-linejoin="round" d="M2.25 12l8.954-8.955c.44-.439 1.152-.439 1.591 0L21.75 12M4.5 9.75v10.125c0 .621.504 1.125 1.125 1.125H9.75v-4.875c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125V21h4.125c.621 0 1.125-.504 1.125-1.125V9.75M8.25 21h8.25" />
+      </svg>
+      CareerWatch
+    </a>
+    <div class="flex items-center gap-3">
+      <a href="#pricing" class="text-sm font-medium text-gray-500 hover:text-gray-900 transition-colors hidden sm:block">Pricing</a>
+      <a href="/login" class="btn-secondary text-sm px-3 py-1.5">Log in</a>
+      <a href="/signup" class="btn-primary text-sm px-3 py-1.5">Start free</a>
+    </div>
+  </nav>
+
+  <!-- ── Hero ── -->
+  <section class="mx-auto max-w-3xl px-6 pt-20 pb-16 text-center">
+    <div class="mb-6 inline-flex items-center rounded-full bg-brand-50 px-3 py-1 text-xs font-semibold text-brand-700 ring-1 ring-brand-200">
+      Free for up to 3 companies · No credit card needed
+    </div>
+    <h1 class="text-5xl font-extrabold tracking-tight text-gray-900 sm:text-6xl">
+      Never miss a<br/>
+      <span class="text-brand-600">job opening</span> again
+    </h1>
+    <p class="mt-6 text-xl text-gray-500 max-w-2xl mx-auto leading-relaxed">
+      Career Watch monitors any company's careers page and sends you an email
+      the moment new roles appear — or disappear. Be first in line, every time.
+    </p>
+    <div class="mt-10 flex flex-col sm:flex-row items-center justify-center gap-4">
+      <a href="/signup" class="btn-primary w-full sm:w-auto px-8 py-3 text-base">
+        Start for free
+      </a>
+      <a href="#pricing" class="btn-secondary w-full sm:w-auto px-8 py-3 text-base">
+        See pricing
+      </a>
+    </div>
+  </section>
+
+  <!-- ── Social proof ── -->
+  <div class="border-y border-gray-100 bg-gray-50 py-5">
+    <p class="text-center text-xs font-semibold uppercase tracking-widest text-gray-400">
+      Trusted by people watching Stripe, Anthropic, Linear, Vercel &amp; hundreds more
+    </p>
+  </div>
+
+  <!-- ── Features ── -->
+  <section class="mx-auto max-w-6xl px-6 py-24">
+    <h2 class="text-center text-3xl font-bold text-gray-900">Everything you need to stay ahead</h2>
+    <div class="mt-14 grid gap-8 sm:grid-cols-2 lg:grid-cols-3">
+      {[
+        { icon: '🔔', title: 'Instant job alerts', body: 'Get an email the moment a new role appears — or when a listing is pulled. Know before anyone else.' },
+        { icon: '🏢', title: 'Any company, any page', body: 'Works with direct careers pages and all major platforms: Greenhouse, Lever, Ashby, Workday, and more.' },
+        { icon: '🔍', title: 'Smart job detection', body: 'Extracts individual job titles so your alert tells you exactly what changed, not just "something changed".' },
+        { icon: '⚡', title: 'Up to 15-minute checks', body: 'Pro and Business plans check watched pages as often as every 15 minutes. You\'re always first in line.' },
+        { icon: '🛠️', title: 'Auto-discovery', body: 'Our crawler continuously finds new companies and career pages. Add any company in seconds.' },
+        { icon: '📬', title: 'No app required', body: 'Alerts go straight to your inbox. No dashboard to check, no app to install, no notifications to manage.' },
+      ].map(f => (
+        <div class="card p-6">
+          <div class="text-3xl mb-4">{f.icon}</div>
+          <h3 class="font-semibold text-gray-900 mb-2">{f.title}</h3>
+          <p class="text-sm text-gray-500 leading-relaxed">{f.body}</p>
+        </div>
+      ))}
+    </div>
+  </section>
+
+  <!-- ── How it works ── -->
+  <section class="bg-gray-50 py-24">
+    <div class="mx-auto max-w-4xl px-6">
+      <h2 class="text-center text-3xl font-bold text-gray-900">Up and running in 60 seconds</h2>
+      <div class="mt-14 grid gap-8 sm:grid-cols-3">
+        {[
+          { n: '1', title: 'Create a free account', body: 'Sign up with your email. No credit card needed to get started.' },
+          { n: '2', title: 'Add a company', body: 'Paste the careers page URL of any company you want to monitor.' },
+          { n: '3', title: 'Get notified', body: 'We check the page on your plan\'s schedule and email you when anything changes.' },
+        ].map(s => (
+          <div class="text-center">
+            <div class="mx-auto mb-4 flex h-10 w-10 items-center justify-center rounded-full bg-brand-600 text-white font-bold text-lg">
+              {s.n}
+            </div>
+            <h3 class="font-semibold text-gray-900 mb-2">{s.title}</h3>
+            <p class="text-sm text-gray-500">{s.body}</p>
+          </div>
+        ))}
+      </div>
+    </div>
+  </section>
+
+  <!-- ── Pricing ── -->
+  <section id="pricing" class="mx-auto max-w-6xl px-6 py-24">
+    <h2 class="text-center text-3xl font-bold text-gray-900">Simple, transparent pricing</h2>
+    <p class="mt-3 text-center text-gray-500">Start free. Upgrade when you need more.</p>
+
+    <div class="mt-14 grid gap-8 lg:grid-cols-3">
+      <!-- Free -->
+      <div class="card p-8 flex flex-col">
+        <p class="text-xs font-semibold uppercase tracking-wider text-gray-400">Free</p>
+        <div class="mt-3 flex items-baseline gap-1">
+          <span class="text-4xl font-extrabold text-gray-900">$0</span>
+          <span class="text-sm text-gray-500">/ month</span>
+        </div>
+        <p class="mt-3 text-sm text-gray-500 min-h-[2.5rem]">Perfect for keeping an eye on a handful of target companies.</p>
+        <ul class="mt-6 space-y-3 flex-1">
+          {['3 watched companies', 'Daily checks (every 24 h)', 'Email notifications', 'All ATS platforms'].map(f => (
+            <li class="flex items-center gap-2 text-sm text-gray-700">
+              <svg class="h-4 w-4 flex-shrink-0 text-brand-600" fill="none" viewBox="0 0 24 24" stroke-width="2.5" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M4.5 12.75l6 6 9-13.5" />
+              </svg>
+              {f}
+            </li>
+          ))}
+        </ul>
+        <a href="/signup" class="btn-secondary mt-8 w-full justify-center">Get started free</a>
+      </div>
+
+      <!-- Pro (highlighted) -->
+      <div class="card p-8 flex flex-col ring-2 ring-brand-600 relative">
+        <div class="absolute -top-3 left-1/2 -translate-x-1/2 rounded-full bg-brand-600 px-3 py-0.5 text-xs font-semibold text-white">
+          Most popular
+        </div>
+        <p class="text-xs font-semibold uppercase tracking-wider text-brand-600">Pro</p>
+        <div class="mt-3 flex items-baseline gap-1">
+          <span class="text-4xl font-extrabold text-gray-900">$9</span>
+          <span class="text-sm text-gray-500">/ month</span>
+        </div>
+        <p class="mt-3 text-sm text-gray-500 min-h-[2.5rem]">For serious job seekers who need faster alerts and more coverage.</p>
+        <ul class="mt-6 space-y-3 flex-1">
+          {['25 watched companies', 'Hourly checks (every 60 min)', 'Email notifications', 'All ATS platforms', 'Job-level diff alerts'].map(f => (
+            <li class="flex items-center gap-2 text-sm text-gray-700">
+              <svg class="h-4 w-4 flex-shrink-0 text-brand-600" fill="none" viewBox="0 0 24 24" stroke-width="2.5" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M4.5 12.75l6 6 9-13.5" />
+              </svg>
+              {f}
+            </li>
+          ))}
+        </ul>
+        <a href="/signup?plan=pro" class="btn-primary mt-8 w-full justify-center">Start Pro</a>
+      </div>
+
+      <!-- Business -->
+      <div class="card p-8 flex flex-col">
+        <p class="text-xs font-semibold uppercase tracking-wider text-gray-400">Business</p>
+        <div class="mt-3 flex items-baseline gap-1">
+          <span class="text-4xl font-extrabold text-gray-900">$29</span>
+          <span class="text-sm text-gray-500">/ month</span>
+        </div>
+        <p class="mt-3 text-sm text-gray-500 min-h-[2.5rem]">For recruiters and teams tracking the whole market in real time.</p>
+        <ul class="mt-6 space-y-3 flex-1">
+          {['200 watched companies', '15-minute checks', 'Email notifications', 'All ATS platforms', 'Job-level diff alerts', 'Priority support'].map(f => (
+            <li class="flex items-center gap-2 text-sm text-gray-700">
+              <svg class="h-4 w-4 flex-shrink-0 text-brand-600" fill="none" viewBox="0 0 24 24" stroke-width="2.5" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M4.5 12.75l6 6 9-13.5" />
+              </svg>
+              {f}
+            </li>
+          ))}
+        </ul>
+        <a href="/signup?plan=business" class="btn-secondary mt-8 w-full justify-center">Start Business</a>
+      </div>
+    </div>
+  </section>
+
+  <!-- ── CTA ── -->
+  <section class="bg-brand-600 py-20">
+    <div class="mx-auto max-w-2xl px-6 text-center">
+      <h2 class="text-3xl font-bold text-white">Start monitoring in 60 seconds</h2>
+      <p class="mt-4 text-brand-100">Free plan included. No credit card required.</p>
+      <a href="/signup" class="mt-8 inline-block rounded-md bg-white px-8 py-3 text-sm font-semibold text-brand-700 hover:bg-brand-50 transition-colors">
+        Create your free account
+      </a>
+    </div>
+  </section>
+
+  <!-- ── Footer ── -->
+  <footer class="mx-auto max-w-7xl px-6 py-8 flex flex-col sm:flex-row items-center justify-between gap-4 border-t border-gray-100">
+    <span class="font-bold text-gray-900 tracking-tight">Career<span class="text-brand-600">Watch</span></span>
+    <div class="flex gap-6 text-sm text-gray-400">
+      <a href="#pricing" class="hover:text-gray-700">Pricing</a>
+      <a href="/terms" class="hover:text-gray-700">Terms</a>
+      <a href="/privacy" class="hover:text-gray-700">Privacy</a>
+      <a href="mailto:hello@careerwatch.io" class="hover:text-gray-700">Contact</a>
+    </div>
+    <span class="text-xs text-gray-400">&copy; 2026 Career Watch</span>
+  </footer>
+</Base>

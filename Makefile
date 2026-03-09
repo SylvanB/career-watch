@@ -34,6 +34,11 @@ help:
 	@echo "    make test-rm-job   Remove 'senior-rust-engineer' from test server"
 	@echo "    make test-reset    Reset test server jobs to defaults"
 	@echo ""
+	@echo "  Frontend (web/)"
+	@echo "    make web-install   npm install"
+	@echo "    make web-dev       Astro dev server on :4321 (proxies API to :8080)"
+	@echo "    make web-build     Build static output to web/dist/"
+	@echo ""
 	@echo "  Build"
 	@echo "    make test          Run all tests"
 	@echo "    make build         cargo build --release"
@@ -121,6 +126,20 @@ test-rm-job:
 test-reset:
 	curl -s -X POST $(TEST_SERVER)/admin/reset \
 	  && echo " → reset to defaults"
+
+# ── Frontend ─────────────────────────────────────────────────────────────────
+
+.PHONY: web-install
+web-install:
+	cd web && npm install
+
+.PHONY: web-dev
+web-dev:
+	cd web && npm run dev
+
+.PHONY: web-build
+web-build:
+	cd web && npm run build
 
 # ── Build & test ─────────────────────────────────────────────────────────────
 

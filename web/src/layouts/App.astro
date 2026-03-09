@@ -1,0 +1,136 @@
+---
+// Authenticated app shell.
+// Checks /api/me on load; redirects to /login if unauthenticated.
+interface Props {
+  title: string;
+}
+
+const { title } = Astro.props;
+---
+
+<html lang="en" class="h-full bg-gray-50">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>{title} — Career Watch</title>
+
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap"
+      rel="stylesheet"
+    />
+    <script
+      defer
+      src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"
+    ></script>
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+  </head>
+
+  <body
+    class="h-full font-sans antialiased"
+    x-data="appShell()"
+    x-init="init()"
+  >
+    <!-- Top nav -->
+    <nav class="bg-white border-b border-gray-200">
+      <div class="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
+        <div class="flex h-16 items-center justify-between">
+
+          <!-- Logo + nav links -->
+          <div class="flex items-center gap-8">
+            <a href="/dashboard" class="flex items-center gap-2 font-bold text-gray-900 tracking-tight">
+              <svg class="h-6 w-6 text-brand-600" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M2.25 12l8.954-8.955c.44-.439 1.152-.439 1.591 0L21.75 12M4.5 9.75v10.125c0 .621.504 1.125 1.125 1.125H9.75v-4.875c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125V21h4.125c.621 0 1.125-.504 1.125-1.125V9.75M8.25 21h8.25" />
+              </svg>
+              CareerWatch
+            </a>
+            <a href="/dashboard" class="text-sm font-medium text-gray-600 hover:text-gray-900 transition-colors">Watchers</a>
+            <a href="/account" class="text-sm font-medium text-gray-600 hover:text-gray-900 transition-colors">Account</a>
+          </div>
+
+          <!-- User menu -->
+          <div class="flex items-center gap-4" x-show="user">
+            <!-- Tier badge -->
+            <span
+              x-show="user?.tier === 'free'"
+              class="badge-free"
+              x-text="'Free plan'"
+            ></span>
+            <span
+              x-show="user?.tier === 'pro'"
+              class="badge-pro"
+              x-text="'Pro'"
+            ></span>
+            <span
+              x-show="user?.tier === 'business'"
+              class="badge-business"
+              x-text="'Business'"
+            ></span>
+
+            <!-- User dropdown -->
+            <div class="relative" x-data="{ open: false }">
+              <button
+                @click="open = !open"
+                @click.outside="open = false"
+                class="flex items-center gap-2 rounded-full bg-gray-100 px-3 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-200 transition-colors"
+              >
+                <span x-text="user?.email?.split('@')[0]"></span>
+                <svg class="h-4 w-4 text-gray-400" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M19.5 8.25l-7.5 7.5-7.5-7.5" />
+                </svg>
+              </button>
+
+              <div
+                x-show="open"
+                x-transition
+                class="absolute right-0 mt-2 w-48 origin-top-right rounded-md bg-white py-1 shadow-lg ring-1 ring-black ring-opacity-5 z-50"
+              >
+                <a href="/account" class="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-50">Account & Billing</a>
+                <hr class="my-1 border-gray-100" />
+                <button
+                  @click="logout()"
+                  class="block w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-50"
+                >
+                  Sign out
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <!-- Loading skeleton -->
+          <div x-show="!user" class="h-8 w-32 animate-pulse rounded-md bg-gray-100"></div>
+        </div>
+      </div>
+    </nav>
+
+    <!-- Page content -->
+    <main class="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
+      <slot />
+    </main>
+
+    <script>
+      function appShell() {
+        return {
+          user: null,
+
+          async init() {
+            const res = await fetch('/api/me');
+            if (res.status === 401) {
+              window.location.href = '/login';
+              return;
+            }
+            this.user = await res.json();
+            // Make available to child Alpine scopes via a custom event
+            window.dispatchEvent(new CustomEvent('user-loaded', { detail: this.user }));
+          },
+
+          async logout() {
+            await fetch('/auth/logout', { method: 'POST' });
+            window.location.href = '/';
+          },
+        };
+      }
+    </script>
+  </body>
+</html>
