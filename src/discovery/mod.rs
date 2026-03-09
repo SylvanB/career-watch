@@ -27,5 +27,6 @@
 pub mod platform;
 pub mod prober;
 pub mod scheduler;
+pub mod selector;
 pub mod sources;
 pub mod validator;

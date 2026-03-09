@@ -37,6 +37,7 @@ use std::time::Duration;
 use tracing::{debug, info, warn};
 
 use super::platform::{detect_platform, extract_platform_id, Platform};
+use super::selector::detect_job_selector;
 use super::validator::has_job_listings;
 
 // ── Candidate ─────────────────────────────────────────────────────────────────
@@ -50,6 +51,9 @@ pub struct Candidate {
     pub platform: Platform,
     pub platform_id: Option<String>,
     pub job_count_estimate: usize,
+    /// Auto-detected CSS selector for individual job listing elements.
+    /// `None` for JS-heavy pages where static selectors are unreliable.
+    pub job_selector: Option<String>,
     /// Which strategy produced this candidate.
     pub source: &'static str,
 }
@@ -63,6 +67,7 @@ impl Candidate {
         html: &str,
         source: &'static str,
     ) -> Self {
+        let job_selector = detect_job_selector(html, &platform);
         let mut score: u32 = 1;
 
         // Known ATS platform
@@ -100,7 +105,7 @@ impl Candidate {
             _               => 0,
         };
 
-        Self { url, score, platform, platform_id, job_count_estimate: job_count, source }
+        Self { url, score, platform, platform_id, job_count_estimate: job_count, job_selector, source }
     }
 }
 
@@ -127,6 +132,8 @@ pub struct CareerPageResult {
     pub job_count_estimate: usize,
     pub score: u32,
     pub source: &'static str,
+    /// Auto-detected CSS selector for job listings on this page.
+    pub job_selector: Option<String>,
 }
 
 impl From<Candidate> for CareerPageResult {
@@ -138,6 +145,7 @@ impl From<Candidate> for CareerPageResult {
             job_count_estimate: c.job_count_estimate,
             score: c.score,
             source: c.source,
+            job_selector: c.job_selector,
         }
     }
 }
@@ -333,11 +341,11 @@ impl ProbeStrategy for AtsEmbedStrategy {
                 Some(candidate) => ctx.add(candidate),
                 None => {
                     // ATS embed is strong signal even if validation doesn't confirm jobs —
-                    // the board page may load via JS. Add with a modest base score.
+                    // the board page may load via JS. Add with platform-known selector.
                     let (_, job_count) = has_job_listings(&html, &platform);
                     let platform_id = extract_platform_id(&platform, &board_url);
                     ctx.add(Candidate::new(
-                        board_url, platform, platform_id, job_count, &html, "ats_embed",
+                        board_url, platform, platform_id, job_count, "", "ats_embed",
                     ));
                 }
             }

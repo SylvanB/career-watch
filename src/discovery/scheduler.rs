@@ -176,9 +176,10 @@ async fn probe_one(db: &PgPool, prober: &CareerProber, company: &CompanyRow) -> 
                     platform_id      = $3,
                     probe_confidence = $4,
                     probe_source     = $5,
-                    last_probed_at   = $6,
+                    job_selector     = $6,
+                    last_probed_at   = $7,
                     probe_error      = NULL
-                WHERE id = $7
+                WHERE id = $8
                 "#,
             )
             .bind(&result.url)
@@ -186,6 +187,7 @@ async fn probe_one(db: &PgPool, prober: &CareerProber, company: &CompanyRow) -> 
             .bind(result.platform_id.as_deref())
             .bind(result.score as i16)
             .bind(result.source)
+            .bind(result.job_selector.as_deref())
             .bind(Utc::now())
             .bind(company.id)
             .execute(db)
