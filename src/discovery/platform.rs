@@ -152,4 +152,75 @@ mod tests {
         let id = extract_platform_id(&Platform::Lever, "https://jobs.lever.co/stripe/abc");
         assert_eq!(id.as_deref(), Some("stripe"));
     }
+
+    #[test]
+    fn detects_workday_by_url() {
+        let p = detect_platform("https://acme.myworkdayjobs.com/careers", "");
+        assert_eq!(p, Platform::Workday);
+    }
+
+    #[test]
+    fn detects_smartrecruiters_by_url() {
+        let p = detect_platform("https://careers.smartrecruiters.com/Acme", "");
+        assert_eq!(p, Platform::SmartRecruiters);
+    }
+
+    #[test]
+    fn detects_bamboohr_by_url() {
+        let p = detect_platform("https://app.bamboohr.com/jobs/acme", "");
+        assert_eq!(p, Platform::BambooHr);
+    }
+
+    #[test]
+    fn detects_greenhouse_by_html_embed() {
+        let html = r#"<iframe src="https://boards.greenhouse.io/embed/acmecorp"></iframe>"#;
+        let p = detect_platform("https://acme.com/careers", html);
+        assert_eq!(p, Platform::Greenhouse);
+    }
+
+    #[test]
+    fn returns_unknown_for_generic_page() {
+        let p = detect_platform("https://example.com/careers", "<h1>Jobs</h1>");
+        assert_eq!(p, Platform::Unknown);
+    }
+
+    #[test]
+    fn url_pattern_takes_priority_over_html() {
+        // URL clearly says Greenhouse, HTML says Lever — URL wins
+        let html = r#"<a href="https://jobs.lever.co/acme">Apply</a>"#;
+        let p = detect_platform("https://boards.greenhouse.io/acme", html);
+        assert_eq!(p, Platform::Greenhouse);
+    }
+
+    #[test]
+    fn extracts_ashby_id() {
+        let id = extract_platform_id(
+            &Platform::Ashby,
+            "https://jobs.ashbyhq.com/acmecorp/role-slug",
+        );
+        assert_eq!(id.as_deref(), Some("acmecorp"));
+    }
+
+    #[test]
+    fn extracts_smartrecruiters_id() {
+        let id = extract_platform_id(
+            &Platform::SmartRecruiters,
+            "https://careers.smartrecruiters.com/AcmeCorp",
+        );
+        assert_eq!(id.as_deref(), Some("AcmeCorp"));
+    }
+
+    #[test]
+    fn board_url_generates_correct_links() {
+        assert_eq!(
+            Platform::Greenhouse.board_url("acme"),
+            Some("https://boards.greenhouse.io/acme".to_string())
+        );
+        assert_eq!(
+            Platform::Lever.board_url("stripe"),
+            Some("https://jobs.lever.co/stripe".to_string())
+        );
+        assert_eq!(Platform::Workday.board_url("acme"), None);
+        assert_eq!(Platform::Unknown.board_url("acme"), None);
+    }
 }

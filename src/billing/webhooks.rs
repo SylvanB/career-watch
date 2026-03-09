@@ -176,3 +176,45 @@ fn tier_for_price(price_id: &str, price_pro: &str, price_business: &str) -> Subs
         SubscriptionTier::Pro
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn maps_pro_price_id() {
+        assert_eq!(
+            tier_for_price("price_pro_123", "price_pro_123", "price_biz_456"),
+            SubscriptionTier::Pro
+        );
+    }
+
+    #[test]
+    fn maps_business_price_id() {
+        assert_eq!(
+            tier_for_price("price_biz_456", "price_pro_123", "price_biz_456"),
+            SubscriptionTier::Business
+        );
+    }
+
+    #[test]
+    fn unknown_price_defaults_to_pro() {
+        assert_eq!(
+            tier_for_price("price_unknown", "price_pro_123", "price_biz_456"),
+            SubscriptionTier::Pro
+        );
+    }
+
+    #[test]
+    fn empty_configured_prices_default_to_pro() {
+        // Stripe price IDs not configured yet — default to Pro
+        assert_eq!(tier_for_price("price_anything", "", ""), SubscriptionTier::Pro);
+    }
+
+    #[test]
+    fn business_takes_priority_over_pro_match() {
+        // Edge case: same price ID configured for both (shouldn't happen, but safe)
+        let same = "price_same";
+        assert_eq!(tier_for_price(same, same, same), SubscriptionTier::Business);
+    }
+}

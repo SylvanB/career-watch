@@ -245,7 +245,7 @@ fn diff_jobs(old: &[JobPosting], new: &[JobPosting]) -> (Vec<JobPosting>, Vec<Jo
 
 #[cfg(test)]
 mod tests {
-    use super::diff_jobs;
+    use super::{diff_jobs, notification_summary};
     use career_watch::models::JobPosting;
 
     fn job(title: &str) -> JobPosting {
@@ -258,12 +258,98 @@ mod tests {
         }
     }
 
+    // ── diff_jobs ─────────────────────────────────────────────────────────────
+
     #[test]
-    fn diff_jobs_detects_added_and_removed() {
+    fn diff_detects_added_and_removed() {
         let old = vec![job("A"), job("B")];
         let new = vec![job("B"), job("C")];
         let (added, removed) = diff_jobs(&old, &new);
         assert_eq!(added, vec![job("C")]);
         assert_eq!(removed, vec![job("A")]);
+    }
+
+    #[test]
+    fn diff_empty_lists_produce_no_changes() {
+        let (added, removed) = diff_jobs(&[], &[]);
+        assert!(added.is_empty());
+        assert!(removed.is_empty());
+    }
+
+    #[test]
+    fn diff_all_new_jobs_added() {
+        let (added, removed) = diff_jobs(&[], &[job("X"), job("Y")]);
+        assert_eq!(added.len(), 2);
+        assert!(removed.is_empty());
+    }
+
+    #[test]
+    fn diff_all_jobs_removed() {
+        let (added, removed) = diff_jobs(&[job("X"), job("Y")], &[]);
+        assert!(added.is_empty());
+        assert_eq!(removed.len(), 2);
+    }
+
+    #[test]
+    fn diff_identical_lists_produce_no_changes() {
+        let jobs = vec![job("A"), job("B"), job("C")];
+        let (added, removed) = diff_jobs(&jobs, &jobs.clone());
+        assert!(added.is_empty());
+        assert!(removed.is_empty());
+    }
+
+    #[test]
+    fn diff_ignores_metadata_changes() {
+        // Same title+company, different posted_text — should NOT appear as a change
+        let old = vec![JobPosting {
+            title: "Engineer".into(), company: "Acme".into(),
+            location: None, posted_text: Some("1h ago".into()), url: None,
+        }];
+        let new = vec![JobPosting {
+            title: "Engineer".into(), company: "Acme".into(),
+            location: None, posted_text: Some("2h ago".into()), url: None,
+        }];
+        let (added, removed) = diff_jobs(&old, &new);
+        assert!(added.is_empty(), "metadata-only change should not appear as added");
+        assert!(removed.is_empty(), "metadata-only change should not appear as removed");
+    }
+
+    // ── notification_summary ──────────────────────────────────────────────────
+
+    #[test]
+    fn summary_no_structured_jobs() {
+        assert_eq!(notification_summary(&[], &[]), "Career page updated");
+    }
+
+    #[test]
+    fn summary_single_job_added() {
+        assert_eq!(notification_summary(&[job("A")], &[]), "1 new job added");
+    }
+
+    #[test]
+    fn summary_multiple_jobs_added() {
+        assert_eq!(notification_summary(&[job("A"), job("B")], &[]), "2 new jobs added");
+    }
+
+    #[test]
+    fn summary_single_job_removed() {
+        assert_eq!(notification_summary(&[], &[job("A")]), "1 job removed");
+    }
+
+    #[test]
+    fn summary_multiple_jobs_removed() {
+        assert_eq!(notification_summary(&[], &[job("A"), job("B")]), "2 jobs removed");
+    }
+
+    #[test]
+    fn summary_added_and_removed() {
+        assert_eq!(
+            notification_summary(&[job("A")], &[job("B")]),
+            "1 job added, 1 removed"
+        );
+        assert_eq!(
+            notification_summary(&[job("A"), job("B")], &[job("C")]),
+            "2 jobs added, 1 removed"
+        );
     }
 }

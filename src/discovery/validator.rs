@@ -126,4 +126,56 @@ mod tests {
         assert!(valid);
         assert!(count >= 2);
     }
+
+    #[test]
+    fn all_known_platforms_accepted_unconditionally() {
+        let html = "<html><body>Loading...</body></html>";
+        for platform in &[
+            Platform::Greenhouse,
+            Platform::Lever,
+            Platform::Ashby,
+            Platform::SmartRecruiters,
+        ] {
+            let (valid, _) = has_job_listings(html, platform);
+            assert!(valid, "{} should be accepted unconditionally", platform.as_str());
+        }
+    }
+
+    #[test]
+    fn rejects_multiple_no_openings_phrases() {
+        let phrases = [
+            "no open positions right now",
+            "no current openings at this time",
+            "not currently hiring",
+            "no jobs available",
+        ];
+        for phrase in &phrases {
+            let html = format!("<p>{phrase}</p>");
+            let (valid, _) = has_job_listings(&html, &Platform::Unknown);
+            assert!(!valid, "should reject page containing: {phrase}");
+        }
+    }
+
+    #[test]
+    fn accepts_page_with_data_job_id_attribute() {
+        let html = r#"<div data-job-id="123">Senior Engineer</div>"#;
+        let (valid, _) = has_job_listings(html, &Platform::Unknown);
+        assert!(valid);
+    }
+
+    #[test]
+    fn rejects_empty_page() {
+        let (valid, count) = has_job_listings("", &Platform::Unknown);
+        assert!(!valid);
+        assert_eq!(count, 0);
+    }
+
+    #[test]
+    fn generic_keyword_density_without_markers_not_enough() {
+        // Keywords present but no structural markers → should not validate
+        let html = "<p>We are looking for engineers, developers, and analysts to apply for full-time remote positions and opportunities.</p>";
+        let (valid, _) = has_job_listings(html, &Platform::Unknown);
+        // High keyword count but no <li> or job-card markers → invalid
+        assert!(!valid);
+    }
 }

@@ -186,3 +186,121 @@ impl std::hash::Hash for JobPosting {
         self.company.hash(state);
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::collections::HashSet;
+
+    fn job(title: &str) -> JobPosting {
+        JobPosting {
+            title: title.to_string(),
+            company: "Acme".to_string(),
+            location: None,
+            posted_text: None,
+            url: None,
+        }
+    }
+
+    fn job_full(title: &str, location: &str, posted: &str, url: &str) -> JobPosting {
+        JobPosting {
+            title: title.to_string(),
+            company: "Acme".to_string(),
+            location: Some(location.to_string()),
+            posted_text: Some(posted.to_string()),
+            url: Some(url.to_string()),
+        }
+    }
+
+    // ── JobPosting identity ───────────────────────────────────────────────────
+
+    #[test]
+    fn eq_ignores_metadata() {
+        // Same title+company but different location, posted_text, url → equal
+        let a = job_full("Engineer", "Remote", "1 hour ago", "https://example.com/1");
+        let b = job_full("Engineer", "New York", "just now", "https://example.com/2");
+        assert_eq!(a, b);
+    }
+
+    #[test]
+    fn neq_different_title() {
+        assert_ne!(job("Engineer"), job("Designer"));
+    }
+
+    #[test]
+    fn neq_different_company() {
+        let a = JobPosting { title: "Engineer".into(), company: "Acme".into(), location: None, posted_text: None, url: None };
+        let b = JobPosting { title: "Engineer".into(), company: "Globex".into(), location: None, posted_text: None, url: None };
+        assert_ne!(a, b);
+    }
+
+    #[test]
+    fn hash_consistent_with_eq() {
+        // If a == b, inserting b into a set containing a must be a no-op
+        let a = job_full("Engineer", "Remote", "1h ago", "https://example.com/old");
+        let b = job_full("Engineer", "NYC",    "just now", "https://example.com/new");
+        let mut set = HashSet::new();
+        set.insert(a);
+        assert!(!set.insert(b), "equal job should not be re-inserted");
+        assert_eq!(set.len(), 1);
+    }
+
+    #[test]
+    fn hash_set_dedup_on_title_company() {
+        // Simulate two scrapes of the same page: posted_text changes each time.
+        let scrape1 = vec![
+            job_full("Senior Engineer", "Remote", "1h ago",   "https://co.com/1"),
+            job_full("Product Manager", "NYC",    "2h ago",   "https://co.com/2"),
+        ];
+        let scrape2 = vec![
+            job_full("Senior Engineer", "Remote", "2h ago",   "https://co.com/1"),
+            job_full("Product Manager", "NYC",    "3h ago",   "https://co.com/2"),
+            job_full("Data Scientist",  "Remote", "just now", "https://co.com/3"),
+        ];
+
+        let old: HashSet<_> = scrape1.into_iter().collect();
+        let new: HashSet<_> = scrape2.into_iter().collect();
+
+        let added: Vec<_> = new.difference(&old).collect();
+        let removed: Vec<_> = old.difference(&new).collect();
+
+        assert_eq!(added.len(), 1, "only Data Scientist should be added");
+        assert_eq!(added[0].title, "Data Scientist");
+        assert_eq!(removed.len(), 0, "no jobs should be removed");
+    }
+
+    // ── SubscriptionTier limits ───────────────────────────────────────────────
+
+    #[test]
+    fn tier_watcher_limits() {
+        assert_eq!(SubscriptionTier::Free.max_watchers(), 3);
+        assert_eq!(SubscriptionTier::Pro.max_watchers(), 25);
+        assert_eq!(SubscriptionTier::Business.max_watchers(), 200);
+    }
+
+    #[test]
+    fn tier_check_intervals() {
+        assert_eq!(SubscriptionTier::Free.check_interval_minutes(), 24 * 60);
+        assert_eq!(SubscriptionTier::Pro.check_interval_minutes(), 60);
+        assert_eq!(SubscriptionTier::Business.check_interval_minutes(), 15);
+    }
+
+    #[test]
+    fn tier_pricing() {
+        assert!(SubscriptionTier::Free.monthly_price_usd().is_none());
+        assert_eq!(SubscriptionTier::Pro.monthly_price_usd(), Some(9));
+        assert_eq!(SubscriptionTier::Business.monthly_price_usd(), Some(29));
+    }
+
+    #[test]
+    fn tier_ordering_by_limit() {
+        assert!(
+            SubscriptionTier::Free.max_watchers()
+                < SubscriptionTier::Pro.max_watchers()
+        );
+        assert!(
+            SubscriptionTier::Pro.max_watchers()
+                < SubscriptionTier::Business.max_watchers()
+        );
+    }
+}

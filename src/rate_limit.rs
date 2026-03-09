@@ -62,6 +62,72 @@ fn client_ip(req: &Request) -> String {
         .unwrap_or_else(|| "unknown".to_string())
 }
 
+// ── Tests ─────────────────────────────────────────────────────────────────────
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::time::Duration;
+
+    fn limiter(max: usize, secs: u64) -> RateLimiter {
+        RateLimiter::new(max, Duration::from_secs(secs))
+    }
+
+    #[test]
+    fn allows_requests_under_limit() {
+        let l = limiter(5, 60);
+        for _ in 0..5 {
+            assert!(l.check("1.2.3.4".into(), "/auth/login".into()));
+        }
+    }
+
+    #[test]
+    fn blocks_on_limit_exceeded() {
+        let l = limiter(3, 60);
+        for _ in 0..3 {
+            assert!(l.check("1.2.3.4".into(), "/auth/login".into()));
+        }
+        assert!(!l.check("1.2.3.4".into(), "/auth/login".into()), "4th request should be blocked");
+    }
+
+    #[test]
+    fn different_ips_are_independent() {
+        let l = limiter(1, 60);
+        assert!(l.check("1.1.1.1".into(), "/auth/login".into()));
+        assert!(!l.check("1.1.1.1".into(), "/auth/login".into())); // blocked
+        assert!(l.check("2.2.2.2".into(), "/auth/login".into()));  // different IP, allowed
+    }
+
+    #[test]
+    fn different_paths_are_independent() {
+        let l = limiter(1, 60);
+        assert!(l.check("1.2.3.4".into(), "/auth/login".into()));
+        assert!(!l.check("1.2.3.4".into(), "/auth/login".into()));    // blocked
+        assert!(l.check("1.2.3.4".into(), "/auth/register".into())); // different path, allowed
+    }
+
+    #[test]
+    fn window_eviction_allows_new_requests() {
+        // Use a tiny window so we can test expiry without sleeping
+        let l = limiter(2, 0); // 0-second window = always expired
+        assert!(l.check("1.2.3.4".into(), "/".into()));
+        assert!(l.check("1.2.3.4".into(), "/".into()));
+        // With a 0-second window, old entries are always evicted → never blocked
+        assert!(l.check("1.2.3.4".into(), "/".into()));
+        assert!(l.check("1.2.3.4".into(), "/".into()));
+    }
+
+    #[test]
+    fn burst_of_exact_limit_allowed() {
+        let l = limiter(10, 60);
+        let results: Vec<bool> = (0..10)
+            .map(|_| l.check("host".into(), "/".into()))
+            .collect();
+        assert!(results.iter().all(|&r| r), "all 10 should be allowed");
+        assert!(!l.check("host".into(), "/".into()), "11th should be blocked");
+    }
+}
+
 /// Axum middleware — rejects with 429 when the rate limit is exceeded.
 pub async fn rate_limit(
     axum::extract::State(limiter): axum::extract::State<RateLimiter>,

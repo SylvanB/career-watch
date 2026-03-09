@@ -114,6 +114,7 @@ pub async fn create_email_token(
 }
 
 /// Validate and consume a one-time email token.
+
 ///
 /// Returns the `user_id` if the token is valid, unused, and not expired.
 /// Marks the token as used atomically so it cannot be replayed.
@@ -139,4 +140,54 @@ pub async fn consume_email_token(
     .fetch_optional(db)
     .await?;
     Ok(row.map(|(id,)| id))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn token_is_64_hex_chars() {
+        let (token, _) = new_token();
+        assert_eq!(token.len(), 64, "32 bytes encodes to 64 hex chars");
+        assert!(token.chars().all(|c| c.is_ascii_hexdigit()));
+    }
+
+    #[test]
+    fn tokens_are_unique() {
+        let (t1, _) = new_token();
+        let (t2, _) = new_token();
+        assert_ne!(t1, t2, "consecutive tokens must not collide");
+    }
+
+    #[test]
+    fn hash_is_deterministic() {
+        let (token, expected_hash) = new_token();
+        assert_eq!(hash_token(&token), expected_hash);
+        assert_eq!(hash_token(&token), expected_hash); // stable on repeated calls
+    }
+
+    #[test]
+    fn hash_is_64_hex_chars() {
+        let (_, hash) = new_token();
+        assert_eq!(hash.len(), 64);
+        assert!(hash.chars().all(|c| c.is_ascii_hexdigit()));
+    }
+
+    #[test]
+    fn different_tokens_produce_different_hashes() {
+        let (t1, h1) = new_token();
+        let (t2, h2) = new_token();
+        assert_ne!(h1, h2, "distinct tokens must not hash to the same value");
+        // Sanity: confirm it's the hash of the token, not of t2
+        assert_eq!(hash_token(&t1), h1);
+        assert_eq!(hash_token(&t2), h2);
+    }
+
+    #[test]
+    fn raw_token_differs_from_its_hash() {
+        // The cookie value (raw token) must never equal what's stored in the DB.
+        let (token, hash) = new_token();
+        assert_ne!(token, hash);
+    }
 }
