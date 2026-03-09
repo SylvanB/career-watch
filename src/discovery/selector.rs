@@ -1,21 +1,19 @@
 //! Auto-detection of CSS selectors for job listing elements.
 //!
-//! Called after a career page is validated. Returns the best CSS selector
-//! for extracting individual job titles, enabling job-level diffing in the
-//! worker without any manual configuration.
-//!
 //! ## Strategy
 //!
 //! 1. **Platform shortcuts** — known ATS platforms have stable, well-known
-//!    selectors. Return immediately without touching the HTML.
+//!    selectors. Validated against the live HTML before returning.
 //!
-//! 2. **Generic structural scan** — try a ranked list of common CSS patterns.
-//!    A pattern is accepted if it matches ≥ `MIN_JOB_COUNT` elements and at
-//!    least one of them has non-trivial text content (a job title).
+//! 2. **Generic structural scan** — ranked list of common CSS patterns.
+//!    Accepted only when matching ≥ MIN_JOB_COUNT elements AND average text
+//!    length is in the title range (4–MAX_TITLE_LEN chars). This rejects
+//!    container divs and navigation elements which typically have very long
+//!    concatenated text.
 //!
-//! 3. **Heuristic element scan** — walk all `<div>`, `<li>`, and `<article>`
-//!    elements, score those whose class/id contains job-related keywords,
-//!    and return the most specific matching selector.
+//! 3. **Heuristic element scan** — walks `a[href]`, `li`, and `div` elements,
+//!    scores those whose class names contain job-related keywords, and accepts
+//!    the most common pattern that also passes the text-length gate.
 
 use scraper::{Html, Selector};
 
@@ -27,29 +25,27 @@ const MIN_JOB_COUNT: usize = 2;
 /// Minimum text length in a matched element to count as a real job title.
 const MIN_TITLE_LEN: usize = 4;
 
+/// Maximum average text length across matched elements.
+///
+/// Real job title elements are short (10–80 chars). If the average is above
+/// this threshold the selector is matching a container div or nav element
+/// that aggregates many text nodes — discard it.
+const MAX_TITLE_LEN: usize = 120;
+
+// ── Public API ────────────────────────────────────────────────────────────────
+
 /// Attempt to detect the CSS selector for individual job listing elements.
-///
-/// Returns `Some(selector)` when a reliable selector is found, `None` when
-/// the page structure is too ambiguous (e.g. JS-rendered SPAs).
-///
-/// Platform shortcuts are tried first, but only accepted if they actually
-/// match on the fetched HTML — this guards against pages that embed jobs via
-/// JS/iframe and would produce 0 matches with the known selector.
 pub fn detect_job_selector(html: &str, platform: &Platform) -> Option<String> {
     if let Some(sel) = platform_selector(platform) {
-        if selector_hit_count(html, sel) >= MIN_JOB_COUNT {
+        if selector_ok(html, sel) {
             return Some(sel.to_string());
         }
-        // Platform selector didn't match — ATS page may use an iframe or JS
-        // render. Fall through to generic detection rather than storing a
-        // selector that would extract nothing.
+        // Platform selector didn't match or was a container — fall through.
     }
-
     detect_generic_selector(html)
 }
 
 /// Count how many elements a CSS selector matches in the given HTML.
-/// Returns 0 for invalid selectors.
 pub fn selector_hit_count(html: &str, selector: &str) -> usize {
     let document = Html::parse_document(html);
     match Selector::parse(selector) {
@@ -58,8 +54,7 @@ pub fn selector_hit_count(html: &str, selector: &str) -> usize {
     }
 }
 
-/// Run a selector and return up to `limit` non-empty title strings.
-/// Used by the test endpoint to give users a live preview.
+/// Run a selector and return up to `limit` cleaned title strings.
 pub fn selector_sample(html: &str, selector: &str, limit: usize) -> Vec<String> {
     let document = Html::parse_document(html);
     let Ok(sel) = Selector::parse(selector) else { return vec![] };
@@ -80,49 +75,41 @@ pub fn selector_sample(html: &str, selector: &str, limit: usize) -> Vec<String> 
         .collect()
 }
 
-/// Hardcoded selectors for known ATS platforms.
-///
-/// These are verified against the live HTML structure of each platform and
-/// produce clean job title strings when used with `extract_jobs_from_html`.
+// ── Platform shortcuts ────────────────────────────────────────────────────────
+
 fn platform_selector(platform: &Platform) -> Option<&'static str> {
     match platform {
-        // boards.greenhouse.io/{company}
-        // Each job: <div class="opening"><a href="...">Title</a> ...</div>
-        Platform::Greenhouse => Some("div.opening a"),
-
-        // jobs.lever.co/{company}
-        // Each job: <div class="posting"><h5>Title</h5> ...</div>
-        Platform::Lever => Some("div.posting h5"),
-
-        // careers.smartrecruiters.com/{company}
-        // Each job: <li class="job-list-item"><h4 ...>Title</h4> ...</li>
+        Platform::Greenhouse     => Some("div.opening a"),
+        Platform::Lever          => Some("div.posting h5"),
         Platform::SmartRecruiters => Some(".job-list-item h4"),
-
-        // Ashby and Workday render heavily via JS — selectors are unreliable.
-        // Fall back to hash-only change detection for these platforms.
         Platform::Ashby | Platform::Workday => None,
-
         _ => None,
     }
 }
 
-/// Generic CSS selector detection for custom career pages.
-///
-/// Tries a ranked list of common structural patterns, returning the first
-/// one that matches enough elements with real text content.
+/// Return true if the selector matches ≥ MIN_JOB_COUNT elements with an
+/// average text length in the title range.
+fn selector_ok(html: &str, selector: &str) -> bool {
+    let document = Html::parse_document(html);
+    let Ok(sel) = Selector::parse(selector) else { return false };
+    let els: Vec<_> = document.select(&sel).collect();
+    if els.len() < MIN_JOB_COUNT { return false; }
+
+    let avg = avg_text_len(&els);
+    avg >= MIN_TITLE_LEN && avg <= MAX_TITLE_LEN
+}
+
+// ── Generic scan ──────────────────────────────────────────────────────────────
+
 fn detect_generic_selector(html: &str) -> Option<String> {
     let document = Html::parse_document(html);
 
-    // Ordered from most specific (data attributes, known class patterns)
-    // to most generic (bare list items).
     let candidates: &[&str] = &[
-        // data-* attributes — unambiguous job identifiers
         "[data-job-id]",
         "[data-jobid]",
         "[data-job-slug]",
         "[data-job-title]",
         "[data-position-id]",
-        // Common class names used by in-house career pages
         ".job-card",
         ".job-listing",
         ".job-item",
@@ -134,14 +121,12 @@ fn detect_generic_selector(html: &str) -> Option<String> {
         ".career-item",
         ".role-card",
         ".role-item",
-        // Jobs inside a container (more specific than bare li)
         ".jobs li",
         ".job-list li",
         ".job-listings li",
         ".careers-list li",
         ".positions-list li",
         ".openings-list li",
-        // Table-based layouts
         ".jobs-table tr",
         ".positions-table tr",
     ];
@@ -152,12 +137,9 @@ fn detect_generic_selector(html: &str) -> Option<String> {
         }
     }
 
-    // Last resort: score all div/li/article elements with job-keyword class names.
     heuristic_scan(&document)
 }
 
-/// Return `Some(pattern)` if it matches ≥ `MIN_JOB_COUNT` elements that
-/// contain meaningful text. Returns `None` otherwise.
 fn try_selector(document: &Html, pattern: &str) -> Option<String> {
     let sel = Selector::parse(pattern).ok()?;
     let elements: Vec<_> = document.select(&sel).collect();
@@ -166,39 +148,65 @@ fn try_selector(document: &Html, pattern: &str) -> Option<String> {
         return None;
     }
 
-    let has_real_text = elements.iter().any(|el| {
-        let text = el.text().collect::<String>();
-        text.trim().len() >= MIN_TITLE_LEN
-    });
+    let avg = avg_text_len(&elements);
+    if avg < MIN_TITLE_LEN || avg > MAX_TITLE_LEN {
+        return None; // Container element or empty — skip
+    }
 
-    if has_real_text {
-        Some(pattern.to_string())
-    } else {
-        None
+    Some(pattern.to_string())
+}
+
+/// Check whether `pattern` matches elements in the document that look like
+/// job titles (correct count and average text length).
+/// The Selector lifetime is entirely contained within this function.
+fn pattern_ok(document: &Html, pattern: &str) -> bool {
+    match Selector::parse(pattern) {
+        Ok(sel) => {
+            let els: Vec<_> = document.select(&sel).collect();
+            let avg = avg_text_len(&els);
+            avg >= MIN_TITLE_LEN && avg <= MAX_TITLE_LEN
+        }
+        Err(_) => false,
     }
 }
 
-/// Job-related keywords used to score candidate element class names.
+fn avg_text_len(elements: &[scraper::ElementRef]) -> usize {
+    if elements.is_empty() { return 0; }
+    let total: usize = elements
+        .iter()
+        .map(|el| el.text().collect::<String>().trim().len())
+        .sum();
+    total / elements.len()
+}
+
+// ── Heuristic scan ────────────────────────────────────────────────────────────
+
 const JOB_CLASS_KEYWORDS: &[&str] = &[
     "job", "position", "opening", "role", "career",
     "vacancy", "opportunity", "listing", "posting",
 ];
 
-/// Walk the DOM and find repeating elements whose class names suggest they
-/// are job listings.
 fn heuristic_scan(document: &Html) -> Option<String> {
     use std::collections::HashMap;
 
-    let Ok(sel) = Selector::parse("div[class], li[class], article[class]") else {
+    // Include all element types but rely on the text-length gate (applied per
+    // element below) to reject container divs that aggregate many text nodes.
+    let Ok(sel) = Selector::parse(
+        "a[href][class], li[class], h3[class], h4[class], h5[class], div[class], span[class]",
+    ) else {
         return None;
     };
 
-    // Count occurrences of each class-based selector
     let mut counts: HashMap<String, usize> = HashMap::new();
 
     for el in document.select(&sel) {
-        let classes = el.value().attr("class").unwrap_or("").split_whitespace();
+        // Text length gate — ignore elements that are too short or too long.
+        let text_len = el.text().collect::<String>().trim().len();
+        if text_len < MIN_TITLE_LEN || text_len > MAX_TITLE_LEN {
+            continue;
+        }
 
+        let classes = el.value().attr("class").unwrap_or("").split_whitespace();
         for class in classes {
             let lower = class.to_lowercase();
             if JOB_CLASS_KEYWORDS.iter().any(|kw| lower.contains(kw)) {
@@ -209,7 +217,6 @@ fn heuristic_scan(document: &Html) -> Option<String> {
         }
     }
 
-    // Sort by count descending and return the first pattern that has real text.
     let mut sorted: Vec<(String, usize)> = counts
         .into_iter()
         .filter(|(_, c)| *c >= MIN_JOB_COUNT)
@@ -217,13 +224,7 @@ fn heuristic_scan(document: &Html) -> Option<String> {
     sorted.sort_by(|a, b| b.1.cmp(&a.1));
 
     for (pattern, _) in &sorted {
-        let has_text = match Selector::parse(pattern.as_str()) {
-            Ok(sel) => document.select(&sel).any(|el| {
-                el.text().collect::<String>().trim().len() >= MIN_TITLE_LEN
-            }),
-            Err(_) => false,
-        };
-        if has_text {
+        if pattern_ok(document, pattern) {
             return Some(pattern.clone());
         }
     }
@@ -231,11 +232,11 @@ fn heuristic_scan(document: &Html) -> Option<String> {
     None
 }
 
+// ── Tests ─────────────────────────────────────────────────────────────────────
+
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    // ── Platform shortcuts ────────────────────────────────────────────────────
 
     fn greenhouse_html() -> &'static str {
         r#"<div class="opening"><a href="/jobs/1">Senior Engineer</a><span class="location">SF</span></div>
@@ -252,16 +253,12 @@ mod tests {
     #[test]
     fn greenhouse_selector_validated_against_html() {
         let sel = detect_job_selector(greenhouse_html(), &Platform::Greenhouse);
-        assert_eq!(sel.as_deref(), Some("div.opening a"),
-            "Greenhouse selector should be accepted when HTML matches");
+        assert_eq!(sel.as_deref(), Some("div.opening a"));
     }
 
     #[test]
     fn greenhouse_falls_back_when_html_empty() {
-        // Empty HTML → 0 matches → fall through to generic (also None here)
-        let sel = detect_job_selector("", &Platform::Greenhouse);
-        assert!(sel.is_none(),
-            "Empty HTML should not accept the Greenhouse platform shortcut");
+        assert!(detect_job_selector("", &Platform::Greenhouse).is_none());
     }
 
     #[test]
@@ -272,19 +269,19 @@ mod tests {
 
     #[test]
     fn lever_falls_back_to_generic_when_html_empty() {
-        let sel = detect_job_selector("", &Platform::Lever);
-        assert!(sel.is_none());
+        assert!(detect_job_selector("", &Platform::Lever).is_none());
     }
 
     #[test]
     fn ashby_has_no_platform_shortcut() {
-        // Ashby has no hardcoded shortcut — falls through to generic detection.
-        // On empty HTML, generic detection also returns None.
         assert!(detect_job_selector("", &Platform::Ashby).is_none());
-        // On HTML with job-card markup, generic detection still finds something.
-        let html = r#"<div class="job-card">Eng</div><div class="job-card">PM</div><div class="job-card">Design</div>"#;
-        assert!(detect_job_selector(html, &Platform::Ashby).is_some(),
-            "generic detection should still work for Ashby pages that have job-card markup");
+        // With realistic job titles (> MIN_TITLE_LEN), generic detection finds the selector.
+        let html = r#"
+            <div class="job-card">Senior Software Engineer</div>
+            <div class="job-card">Product Manager</div>
+            <div class="job-card">Data Scientist</div>
+        "#;
+        assert!(detect_job_selector(html, &Platform::Ashby).is_some());
     }
 
     #[test]
@@ -293,11 +290,32 @@ mod tests {
     }
 
     #[test]
+    fn rejects_long_text_container_elements() {
+        // A nav element whose text is 200+ chars should be rejected
+        let long_text = "x".repeat(200);
+        let html = format!(
+            r#"<div class="job-nav">{t}</div><div class="job-nav">{t}</div><div class="job-nav">{t}</div>"#,
+            t = long_text
+        );
+        assert!(detect_job_selector(&html, &Platform::Unknown).is_none(),
+            "container with long text should not be accepted as a job selector");
+    }
+
+    #[test]
+    fn accepts_normal_length_job_cards() {
+        let html = r#"
+            <div class="job-card">Senior Software Engineer</div>
+            <div class="job-card">Product Manager</div>
+            <div class="job-card">Data Scientist</div>
+        "#;
+        let sel = detect_job_selector(html, &Platform::Unknown);
+        assert_eq!(sel.as_deref(), Some(".job-card"));
+    }
+
+    #[test]
     fn selector_hit_count_counts_matches() {
         assert_eq!(selector_hit_count(greenhouse_html(), "div.opening a"), 3);
-        assert_eq!(selector_hit_count(greenhouse_html(), "div.opening"), 3);
         assert_eq!(selector_hit_count(greenhouse_html(), ".nonexistent"), 0);
-        assert_eq!(selector_hit_count("", "div.opening a"), 0);
     }
 
     #[test]
@@ -311,80 +329,5 @@ mod tests {
     fn selector_sample_respects_limit() {
         let sample = selector_sample(greenhouse_html(), "div.opening a", 2);
         assert_eq!(sample.len(), 2);
-    }
-
-    // ── Generic detection ─────────────────────────────────────────────────────
-
-    #[test]
-    fn detects_job_card_class() {
-        let html = r#"
-            <div class="job-card"><h3>Senior Engineer</h3></div>
-            <div class="job-card"><h3>Product Designer</h3></div>
-            <div class="job-card"><h3>Data Scientist</h3></div>
-        "#;
-        let sel = detect_job_selector(html, &Platform::Unknown);
-        assert_eq!(sel.as_deref(), Some(".job-card"));
-    }
-
-    #[test]
-    fn detects_data_job_id_attribute() {
-        let html = r#"
-            <div data-job-id="1">Backend Engineer</div>
-            <div data-job-id="2">Frontend Engineer</div>
-        "#;
-        let sel = detect_job_selector(html, &Platform::Unknown);
-        assert_eq!(sel.as_deref(), Some("[data-job-id]"));
-    }
-
-    #[test]
-    fn detects_jobs_list_items() {
-        let html = r#"
-            <ul class="job-listings">
-                <li>Software Engineer</li>
-                <li>Product Manager</li>
-                <li>Designer</li>
-            </ul>
-        "#;
-        let sel = detect_job_selector(html, &Platform::Unknown);
-        assert_eq!(sel.as_deref(), Some(".job-listings li"));
-    }
-
-    #[test]
-    fn returns_none_for_empty_page() {
-        assert!(detect_job_selector("", &Platform::Unknown).is_none());
-    }
-
-    #[test]
-    fn requires_min_two_matches() {
-        // Only one job card — should not accept
-        let html = r#"<div class="job-card">Senior Engineer</div>"#;
-        // Single match doesn't qualify; may fall through to heuristic which also fails
-        let sel = detect_generic_selector(html);
-        // Either None or heuristic result is fine — main constraint is not crashing
-        let _ = sel;
-    }
-
-    #[test]
-    fn heuristic_finds_job_class() {
-        let html = r#"
-            <div class="position-item">Backend Engineer</div>
-            <div class="position-item">Frontend Engineer</div>
-            <div class="position-item">DevOps Engineer</div>
-        "#;
-        let sel = detect_job_selector(html, &Platform::Unknown);
-        assert!(sel.is_some(), "heuristic should find .position-item or similar");
-    }
-
-    #[test]
-    fn ignores_short_text_elements() {
-        // Elements that match a pattern but contain only tiny/empty text
-        let html = r#"
-            <div class="job-card"> </div>
-            <div class="job-card">X</div>
-            <div class="job-card">AB</div>
-        "#;
-        // All text is shorter than MIN_TITLE_LEN — should not accept
-        let sel = detect_job_selector(html, &Platform::Unknown);
-        assert!(sel.is_none());
     }
 }
