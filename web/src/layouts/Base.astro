@@ -30,6 +30,22 @@ const fullTitle = title === 'Career Watch' ? title : `${title} — Career Watch`
       rel="stylesheet"
     />
 
+    <!-- Ensure session cookies are forwarded on all API calls.
+         Without this, the Vite dev proxy can omit the Cookie header. -->
+    <script is:inline>
+      (function () {
+        const _fetch = window.fetch;
+        window.fetch = function (url, opts) {
+          if (typeof url === 'string' &&
+              (url.startsWith('/api') || url.startsWith('/auth') ||
+               url.startsWith('/billing') || url.startsWith('/admin'))) {
+            opts = Object.assign({ credentials: 'include' }, opts);
+          }
+          return _fetch.call(this, url, opts);
+        };
+      })();
+    </script>
+
     <!-- Alpine.js — is:inline stops Astro from trying to bundle a CDN URL -->
     <script
       is:inline
