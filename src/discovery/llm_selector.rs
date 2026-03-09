@@ -47,6 +47,8 @@ fn ollama_client() -> Result<Client> {
 struct OllamaChatRequest<'a> {
     model: &'a str,
     messages: Vec<OllamaMessage>,
+    /// Omitted when null — Ollama rejects `"format": null` with a 400.
+    #[serde(skip_serializing_if = "serde_json::Value::is_null")]
     format: serde_json::Value,
     stream: bool,
     options: OllamaOptions,
@@ -92,14 +94,20 @@ async fn ollama_chat(
         options: OllamaOptions { temperature: 0.1, num_predict: max_tokens },
     };
 
-    let resp: OllamaResponse = client
+    let response = client
         .post(&url)
         .json(&req)
         .send()
         .await
-        .context("failed to reach Ollama — is it running?")?
-        .error_for_status()
-        .context("Ollama returned error status")?
+        .context("failed to reach Ollama — is it running?")?;
+
+    if !response.status().is_success() {
+        let status = response.status();
+        let body = response.text().await.unwrap_or_default();
+        anyhow::bail!("Ollama returned {status} for model '{model}': {body}");
+    }
+
+    let resp: OllamaResponse = response
         .json()
         .await
         .context("failed to parse Ollama response")?;
