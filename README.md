@@ -4,7 +4,13 @@ A SaaS application that monitors company career pages for job listing changes an
 
 ## Demo
 
-![CareerWatch landing page](assets/career-watch-landing.png)
+### Watcher dashboard
+
+![CareerWatch watcher dashboard](assets/career-watch-watchers.png)
+
+### Job-change notifications
+
+![CareerWatch notifications with added and removed jobs](assets/career-watch-notifications.png)
 
 ```
 internet
