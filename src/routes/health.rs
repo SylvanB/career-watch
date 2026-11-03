@@ -14,20 +14,23 @@ pub struct HealthResponse {
 /// Returns 200 with `{"status":"ok","db":"ok"}` when healthy.
 /// Returns 503 with `{"status":"degraded","db":"error"}` if the DB is unreachable.
 pub async fn health(State(state): State<AppState>) -> (StatusCode, Json<HealthResponse>) {
-    let db_ok = sqlx::query("SELECT 1")
-        .execute(&state.db)
-        .await
-        .is_ok();
+    let db_ok = sqlx::query("SELECT 1").execute(&state.db).await.is_ok();
 
     if db_ok {
         (
             StatusCode::OK,
-            Json(HealthResponse { status: "ok", db: "ok" }),
+            Json(HealthResponse {
+                status: "ok",
+                db: "ok",
+            }),
         )
     } else {
         (
             StatusCode::SERVICE_UNAVAILABLE,
-            Json(HealthResponse { status: "degraded", db: "error" }),
+            Json(HealthResponse {
+                status: "degraded",
+                db: "error",
+            }),
         )
     }
 }

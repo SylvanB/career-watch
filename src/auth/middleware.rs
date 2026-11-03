@@ -1,8 +1,8 @@
 //! Axum middleware that validates the session cookie and injects `AuthUser`
 //! into request extensions.
 
-use axum::{extract::State, http::StatusCode, middleware::Next, response::Response};
 use axum::extract::Request;
+use axum::{extract::State, http::StatusCode, middleware::Next, response::Response};
 
 use crate::auth::session::get_user_by_token;
 use crate::models::AuthUser;

@@ -168,20 +168,14 @@ async fn list_jobs(State(jobs): State<SharedJobs>) -> Json<Vec<Job>> {
     Json(jobs.read().await.clone())
 }
 
-async fn add_job(
-    State(jobs): State<SharedJobs>,
-    Json(job): Json<Job>,
-) -> impl IntoResponse {
+async fn add_job(State(jobs): State<SharedJobs>, Json(job): Json<Job>) -> impl IntoResponse {
     let title = job.title.clone();
     jobs.write().await.push(job);
     tracing::info!(title, "job added");
     StatusCode::CREATED
 }
 
-async fn remove_job(
-    State(jobs): State<SharedJobs>,
-    Path(slug): Path<String>,
-) -> impl IntoResponse {
+async fn remove_job(State(jobs): State<SharedJobs>, Path(slug): Path<String>) -> impl IntoResponse {
     let mut jobs = jobs.write().await;
     let before = jobs.len();
     jobs.retain(|j| j.slug() != slug);

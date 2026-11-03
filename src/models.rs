@@ -36,8 +36,8 @@ impl SubscriptionTier {
     pub fn check_interval_minutes(&self) -> i64 {
         match self {
             SubscriptionTier::Free => 60 * 24, // daily
-            SubscriptionTier::Pro => 60,        // hourly
-            SubscriptionTier::Business => 15,   // 15-minute
+            SubscriptionTier::Pro => 60,       // hourly
+            SubscriptionTier::Business => 15,  // 15-minute
         }
     }
 
@@ -235,8 +235,22 @@ mod tests {
 
     #[test]
     fn neq_different_company() {
-        let a = JobPosting { title: "Engineer".into(), company: "Acme".into(), location: None, department: None, posted_text: None, url: None };
-        let b = JobPosting { title: "Engineer".into(), company: "Globex".into(), location: None, department: None, posted_text: None, url: None };
+        let a = JobPosting {
+            title: "Engineer".into(),
+            company: "Acme".into(),
+            location: None,
+            department: None,
+            posted_text: None,
+            url: None,
+        };
+        let b = JobPosting {
+            title: "Engineer".into(),
+            company: "Globex".into(),
+            location: None,
+            department: None,
+            posted_text: None,
+            url: None,
+        };
         assert_ne!(a, b);
     }
 
@@ -244,7 +258,7 @@ mod tests {
     fn hash_consistent_with_eq() {
         // If a == b, inserting b into a set containing a must be a no-op
         let a = job_full("Engineer", "Remote", "1h ago", "https://example.com/old");
-        let b = job_full("Engineer", "NYC",    "just now", "https://example.com/new");
+        let b = job_full("Engineer", "NYC", "just now", "https://example.com/new");
         let mut set = HashSet::new();
         set.insert(a);
         assert!(!set.insert(b), "equal job should not be re-inserted");
@@ -255,13 +269,13 @@ mod tests {
     fn hash_set_dedup_on_title_company() {
         // Simulate two scrapes of the same page: posted_text changes each time.
         let scrape1 = vec![
-            job_full("Senior Engineer", "Remote", "1h ago",   "https://co.com/1"),
-            job_full("Product Manager", "NYC",    "2h ago",   "https://co.com/2"),
+            job_full("Senior Engineer", "Remote", "1h ago", "https://co.com/1"),
+            job_full("Product Manager", "NYC", "2h ago", "https://co.com/2"),
         ];
         let scrape2 = vec![
-            job_full("Senior Engineer", "Remote", "2h ago",   "https://co.com/1"),
-            job_full("Product Manager", "NYC",    "3h ago",   "https://co.com/2"),
-            job_full("Data Scientist",  "Remote", "just now", "https://co.com/3"),
+            job_full("Senior Engineer", "Remote", "2h ago", "https://co.com/1"),
+            job_full("Product Manager", "NYC", "3h ago", "https://co.com/2"),
+            job_full("Data Scientist", "Remote", "just now", "https://co.com/3"),
         ];
 
         let old: HashSet<_> = scrape1.into_iter().collect();
@@ -300,13 +314,7 @@ mod tests {
 
     #[test]
     fn tier_ordering_by_limit() {
-        assert!(
-            SubscriptionTier::Free.max_watchers()
-                < SubscriptionTier::Pro.max_watchers()
-        );
-        assert!(
-            SubscriptionTier::Pro.max_watchers()
-                < SubscriptionTier::Business.max_watchers()
-        );
+        assert!(SubscriptionTier::Free.max_watchers() < SubscriptionTier::Pro.max_watchers());
+        assert!(SubscriptionTier::Pro.max_watchers() < SubscriptionTier::Business.max_watchers());
     }
 }

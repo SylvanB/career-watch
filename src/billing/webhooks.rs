@@ -11,26 +11,29 @@ use tracing::{info, warn};
 use crate::email::EmailClient;
 use crate::models::SubscriptionTier;
 
+pub struct WebhookContext<'a> {
+    pub db: &'a PgPool,
+    pub email: &'a EmailClient,
+    pub price_business: &'a str,
+    pub app_base_url: &'a str,
+}
+
 /// Record and process a verified Stripe webhook event.
 ///
 /// Returns `Ok(false)` if the event has already been processed (idempotent
 /// skip), `Ok(true)` on successful first processing.
 pub async fn handle_event(
-    db: &PgPool,
-    email: &EmailClient,
+    context: WebhookContext<'_>,
     event_id: &str,
     event_type: &str,
     data: &Value,
-    price_pro: &str,
-    price_business: &str,
-    app_base_url: &str,
 ) -> Result<bool> {
     // Idempotency: skip already-processed events.
     let already_seen = sqlx::query_scalar::<_, bool>(
         "SELECT EXISTS(SELECT 1 FROM stripe_events WHERE stripe_event_id = $1)",
     )
     .bind(event_id)
-    .fetch_one(db)
+    .fetch_one(context.db)
     .await?;
 
     if already_seen {
@@ -47,10 +50,18 @@ pub async fn handle_event(
     .bind(event_id)
     .bind(event_type)
     .bind(data)
-    .execute(db)
+    .execute(context.db)
     .await?;
 
-    dispatch_event(db, email, event_type, data, price_pro, price_business, app_base_url).await?;
+    dispatch_event(
+        context.db,
+        context.email,
+        event_type,
+        data,
+        context.price_business,
+        context.app_base_url,
+    )
+    .await?;
     Ok(true)
 }
 
@@ -59,7 +70,6 @@ async fn dispatch_event(
     email: &EmailClient,
     event_type: &str,
     data: &Value,
-    price_pro: &str,
     price_business: &str,
     app_base_url: &str,
 ) -> Result<()> {
@@ -73,7 +83,7 @@ async fn dispatch_event(
                 .as_str()
                 .unwrap_or("");
 
-            let tier = tier_for_price(price_id, price_pro, price_business);
+            let tier = tier_for_price(price_id, price_business);
 
             sqlx::query(
                 r#"
@@ -92,7 +102,13 @@ async fn dispatch_event(
             .execute(db)
             .await?;
 
-            info!(customer_id, sub_id, status, tier = tier.as_str(), "subscription updated");
+            info!(
+                customer_id,
+                sub_id,
+                status,
+                tier = tier.as_str(),
+                "subscription updated"
+            );
         }
 
         "customer.subscription.deleted" => {
@@ -167,11 +183,9 @@ async fn dispatch_event(
     Ok(())
 }
 
-fn tier_for_price(price_id: &str, price_pro: &str, price_business: &str) -> SubscriptionTier {
+fn tier_for_price(price_id: &str, price_business: &str) -> SubscriptionTier {
     if !price_business.is_empty() && price_id == price_business {
         SubscriptionTier::Business
-    } else if !price_pro.is_empty() && price_id == price_pro {
-        SubscriptionTier::Pro
     } else {
         SubscriptionTier::Pro
     }
@@ -184,7 +198,7 @@ mod tests {
     #[test]
     fn maps_pro_price_id() {
         assert_eq!(
-            tier_for_price("price_pro_123", "price_pro_123", "price_biz_456"),
+            tier_for_price("price_pro_123", "price_biz_456"),
             SubscriptionTier::Pro
         );
     }
@@ -192,7 +206,7 @@ mod tests {
     #[test]
     fn maps_business_price_id() {
         assert_eq!(
-            tier_for_price("price_biz_456", "price_pro_123", "price_biz_456"),
+            tier_for_price("price_biz_456", "price_biz_456"),
             SubscriptionTier::Business
         );
     }
@@ -200,7 +214,7 @@ mod tests {
     #[test]
     fn unknown_price_defaults_to_pro() {
         assert_eq!(
-            tier_for_price("price_unknown", "price_pro_123", "price_biz_456"),
+            tier_for_price("price_unknown", "price_biz_456"),
             SubscriptionTier::Pro
         );
     }
@@ -208,13 +222,13 @@ mod tests {
     #[test]
     fn empty_configured_prices_default_to_pro() {
         // Stripe price IDs not configured yet — default to Pro
-        assert_eq!(tier_for_price("price_anything", "", ""), SubscriptionTier::Pro);
+        assert_eq!(tier_for_price("price_anything", ""), SubscriptionTier::Pro);
     }
 
     #[test]
     fn business_takes_priority_over_pro_match() {
         // Edge case: same price ID configured for both (shouldn't happen, but safe)
         let same = "price_same";
-        assert_eq!(tier_for_price(same, same, same), SubscriptionTier::Business);
+        assert_eq!(tier_for_price(same, same), SubscriptionTier::Business);
     }
 }

@@ -21,7 +21,7 @@
 //! ```
 //!
 //! `.env`:
-//! ```
+//! ```text
 //! OLLAMA_HOST=http://localhost:11434
 //! OLLAMA_MODEL=qwen2.5:3b
 //! ```
@@ -91,10 +91,17 @@ async fn ollama_chat(
 
     let req = OllamaChatRequest {
         model,
-        messages: vec![OllamaMessage { role: "user".into(), content: prompt.into() }],
+        messages: vec![OllamaMessage {
+            role: "user".into(),
+            content: prompt.into(),
+        }],
         format,
         stream: false,
-        options: OllamaOptions { temperature: 0.1, num_predict: max_tokens, num_ctx: 16_384 },
+        options: OllamaOptions {
+            temperature: 0.1,
+            num_predict: max_tokens,
+            num_ctx: 16_384,
+        },
     };
 
     let response = client
@@ -132,8 +139,7 @@ pub fn preprocess_html(html: &str) -> String {
     for tag in &["script", "style", "svg", "noscript", "head", "iframe"] {
         let open = format!("<{}", tag);
         let close = format!("</{}>", tag);
-        loop {
-            let Some(start) = text.find(&open) else { break };
+        while let Some(start) = text.find(&open) {
             if let Some(rel) = text[start..].find(&close) {
                 text.replace_range(start..start + rel + close.len(), "");
             } else {
@@ -147,7 +153,10 @@ pub fn preprocess_html(html: &str) -> String {
     let mut prev_ws = false;
     for ch in text.chars() {
         if ch.is_whitespace() {
-            if !prev_ws { result.push(' '); prev_ws = true; }
+            if !prev_ws {
+                result.push(' ');
+                prev_ws = true;
+            }
         } else {
             result.push(ch);
             prev_ws = false;
@@ -191,7 +200,9 @@ struct SelectorJson {
     jobs_url_hint: Option<String>,
 }
 
-fn default_confidence() -> String { "medium".to_string() }
+fn default_confidence() -> String {
+    "medium".to_string()
+}
 
 /// Ask a local Ollama model to detect job listing selectors from page HTML.
 ///
@@ -203,7 +214,9 @@ pub async fn detect_selectors_via_llm(
     ollama_host: &str,
     model: &str,
 ) -> Result<Option<LlmSelectorResult>> {
-    if ollama_host.is_empty() { return Ok(None); }
+    if ollama_host.is_empty() {
+        return Ok(None);
+    }
 
     let skeleton = preprocess_html(html);
     if skeleton.len() < 100 {
@@ -277,7 +290,7 @@ HTML:
 
     // If a URL hint was found (no jobs on this page), return it even without a selector.
     if let Some(ref hint) = parsed.jobs_url_hint {
-        if !hint.is_empty() && parsed.selector.as_deref().map_or(true, |s| s.is_empty()) {
+        if !hint.is_empty() && parsed.selector.as_deref().is_none_or(|s| s.is_empty()) {
             info!(hint, "LLM found jobs URL hint — will probe that URL");
             return Ok(Some(LlmSelectorResult {
                 selector: String::new(),
@@ -333,7 +346,9 @@ fn is_reader_lm(model: &str) -> bool {
 fn strip_and_normalise_json(raw: &str) -> String {
     // 1. Strip ```json / ``` fences.
     let s = raw.trim();
-    let s = s.strip_prefix("```json").or_else(|| s.strip_prefix("```"))
+    let s = s
+        .strip_prefix("```json")
+        .or_else(|| s.strip_prefix("```"))
         .unwrap_or(s)
         .strip_suffix("```")
         .unwrap_or(s)
@@ -342,7 +357,15 @@ fn strip_and_normalise_json(raw: &str) -> String {
     // 2. Object wrapper: {"items": [...]} / {"jobs": [...]} / {"data": [...]} etc.
     if s.starts_with('{') {
         if let Ok(obj) = serde_json::from_str::<serde_json::Value>(s) {
-            for key in &["items", "jobs", "results", "data", "listings", "openings", "positions"] {
+            for key in &[
+                "items",
+                "jobs",
+                "results",
+                "data",
+                "listings",
+                "openings",
+                "positions",
+            ] {
                 if let Some(arr) = obj.get(key) {
                     if arr.is_array() {
                         if let Ok(json) = serde_json::to_string(arr) {
@@ -365,7 +388,10 @@ fn strip_and_normalise_json(raw: &str) -> String {
     }
 
     // 3. Valid array — return as-is.
-    if serde_json::from_str::<serde_json::Value>(s).map(|v| v.is_array()).unwrap_or(false) {
+    if serde_json::from_str::<serde_json::Value>(s)
+        .map(|v| v.is_array())
+        .unwrap_or(false)
+    {
         return s.to_string();
     }
 
@@ -379,7 +405,9 @@ fn strip_and_normalise_json(raw: &str) -> String {
                 '{' => depth += 1,
                 '}' => {
                     depth -= 1;
-                    if depth == 0 { last_complete = i + 1; }
+                    if depth == 0 {
+                        last_complete = i + 1;
+                    }
                 }
                 _ => {}
             }
@@ -406,10 +434,14 @@ pub async fn extract_jobs_via_llm(
     ollama_host: &str,
     model: &str,
 ) -> Result<Option<Vec<JobPosting>>> {
-    if ollama_host.is_empty() { return Ok(None); }
+    if ollama_host.is_empty() {
+        return Ok(None);
+    }
 
     let skeleton = preprocess_html(html);
-    if skeleton.len() < 100 { return Ok(Some(vec![])); }
+    if skeleton.len() < 100 {
+        return Ok(Some(vec![]));
+    }
 
     let schema_json = serde_json::json!({
         "type": "array",
@@ -459,10 +491,10 @@ Return JSON array only. No explanation.
 
 HTML:
 {html}"#,
-            url     = page_url,
+            url = page_url,
             company = company_name,
-            depts   = DEPT_VALUES,
-            html    = skeleton,
+            depts = DEPT_VALUES,
+            html = skeleton,
         );
         (p, schema_json)
     };
@@ -489,12 +521,20 @@ HTML:
     let llm_jobs: Vec<LlmJob> = match serde_json::from_str(&clean) {
         Ok(v) => v,
         Err(e) => {
-            warn!(company = company_name, "LLM extraction returned invalid JSON: {e} — raw: {}", &raw[..raw.len().min(300)]);
+            warn!(
+                company = company_name,
+                "LLM extraction returned invalid JSON: {e} — raw: {}",
+                &raw[..raw.len().min(300)]
+            );
             return Ok(None);
         }
     };
 
-    info!(company = company_name, count = llm_jobs.len(), "LLM extracted jobs");
+    info!(
+        company = company_name,
+        count = llm_jobs.len(),
+        "LLM extracted jobs"
+    );
 
     let jobs = llm_jobs
         .into_iter()
@@ -531,8 +571,14 @@ mod tests {
             </html>
         "#;
         let result = preprocess_html(html);
-        assert!(!result.contains("console.log"), "script block should be removed");
-        assert!(!result.contains("color: red"), "style block should be removed");
+        assert!(
+            !result.contains("console.log"),
+            "script block should be removed"
+        );
+        assert!(
+            !result.contains("color: red"),
+            "style block should be removed"
+        );
         assert!(result.contains("job-card"), "job card class should be kept");
         assert!(result.contains("Engineer"), "text content should be kept");
     }
@@ -574,13 +620,16 @@ mod tests {
 
     #[test]
     fn normalise_fenced_array() {
-        let r = strip_and_normalise_json("```json\n[{\"title\":\"Eng\",\"department\":\"engineering\"}]\n```");
+        let r = strip_and_normalise_json(
+            "```json\n[{\"title\":\"Eng\",\"department\":\"engineering\"}]\n```",
+        );
         assert_eq!(r, "[{\"title\":\"Eng\",\"department\":\"engineering\"}]");
     }
 
     #[test]
     fn normalise_items_wrapper() {
-        let r = strip_and_normalise_json(r#"{"items":[{"title":"Eng","department":"engineering"}]}"#);
+        let r =
+            strip_and_normalise_json(r#"{"items":[{"title":"Eng","department":"engineering"}]}"#);
         assert!(r.starts_with('['), "should unwrap items object: {r}");
     }
 

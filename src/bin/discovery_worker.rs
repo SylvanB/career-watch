@@ -27,12 +27,12 @@ use career_watch::{
     db::create_pool,
     discovery::{
         prober::CareerProber,
-        scheduler::{DiscoveryScheduler, build_http_client},
+        scheduler::{build_http_client, DiscoveryScheduler},
         sources::{CompanyLead, GithubOrgSource, SeedSource, StaticListSource},
     },
 };
 use tracing::info;
-use tracing_subscriber::{EnvFilter, util::SubscriberInitExt};
+use tracing_subscriber::{util::SubscriberInitExt, EnvFilter};
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -60,7 +60,11 @@ async fn main() -> Result<()> {
         info!(source = source.name(), "fetching seed source");
         match source.fetch(&http).await {
             Ok(leads) => {
-                info!(source = source.name(), count = leads.len(), "received leads");
+                info!(
+                    source = source.name(),
+                    count = leads.len(),
+                    "received leads"
+                );
                 all_leads.extend(leads);
             }
             Err(e) => {
@@ -101,7 +105,6 @@ fn build_seed_sources() -> Vec<Box<dyn SeedSource>> {
         Box::new(StaticListSource {
             companies: static_seed_companies(),
         }),
-
         // ── GitHub organisations ──────────────────────────────────────────────
         // Extracts the company website field from a GitHub org profile.
         Box::new(GithubOrgSource {
@@ -119,7 +122,6 @@ fn build_seed_sources() -> Vec<Box<dyn SeedSource>> {
         Box::new(GithubOrgSource {
             org: "railway-app".to_string(),
         }),
-
         // ── Startup directories ───────────────────────────────────────────────
         // Uncomment and configure selectors for directories you have access to.
         //

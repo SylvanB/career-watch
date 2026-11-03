@@ -9,12 +9,7 @@
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use axum::{
-    extract::Request,
-    http::StatusCode,
-    middleware::Next,
-    response::Response,
-};
+use axum::{extract::Request, http::StatusCode, middleware::Next, response::Response};
 use dashmap::DashMap;
 
 /// Shared rate limiter state. Clone-cheap (wraps an Arc).
@@ -62,6 +57,22 @@ fn client_ip(req: &Request) -> String {
         .unwrap_or_else(|| "unknown".to_string())
 }
 
+/// Axum middleware — rejects with 429 when the rate limit is exceeded.
+pub async fn rate_limit(
+    axum::extract::State(limiter): axum::extract::State<RateLimiter>,
+    req: Request,
+    next: Next,
+) -> Result<Response, StatusCode> {
+    let ip = client_ip(&req);
+    let path = req.uri().path().to_string();
+
+    if !limiter.check(ip, path) {
+        return Err(StatusCode::TOO_MANY_REQUESTS);
+    }
+
+    Ok(next.run(req).await)
+}
+
 // ── Tests ─────────────────────────────────────────────────────────────────────
 
 #[cfg(test)]
@@ -87,7 +98,10 @@ mod tests {
         for _ in 0..3 {
             assert!(l.check("1.2.3.4".into(), "/auth/login".into()));
         }
-        assert!(!l.check("1.2.3.4".into(), "/auth/login".into()), "4th request should be blocked");
+        assert!(
+            !l.check("1.2.3.4".into(), "/auth/login".into()),
+            "4th request should be blocked"
+        );
     }
 
     #[test]
@@ -95,14 +109,14 @@ mod tests {
         let l = limiter(1, 60);
         assert!(l.check("1.1.1.1".into(), "/auth/login".into()));
         assert!(!l.check("1.1.1.1".into(), "/auth/login".into())); // blocked
-        assert!(l.check("2.2.2.2".into(), "/auth/login".into()));  // different IP, allowed
+        assert!(l.check("2.2.2.2".into(), "/auth/login".into())); // different IP, allowed
     }
 
     #[test]
     fn different_paths_are_independent() {
         let l = limiter(1, 60);
         assert!(l.check("1.2.3.4".into(), "/auth/login".into()));
-        assert!(!l.check("1.2.3.4".into(), "/auth/login".into()));    // blocked
+        assert!(!l.check("1.2.3.4".into(), "/auth/login".into())); // blocked
         assert!(l.check("1.2.3.4".into(), "/auth/register".into())); // different path, allowed
     }
 
@@ -124,22 +138,9 @@ mod tests {
             .map(|_| l.check("host".into(), "/".into()))
             .collect();
         assert!(results.iter().all(|&r| r), "all 10 should be allowed");
-        assert!(!l.check("host".into(), "/".into()), "11th should be blocked");
+        assert!(
+            !l.check("host".into(), "/".into()),
+            "11th should be blocked"
+        );
     }
-}
-
-/// Axum middleware — rejects with 429 when the rate limit is exceeded.
-pub async fn rate_limit(
-    axum::extract::State(limiter): axum::extract::State<RateLimiter>,
-    req: Request,
-    next: Next,
-) -> Result<Response, StatusCode> {
-    let ip = client_ip(&req);
-    let path = req.uri().path().to_string();
-
-    if !limiter.check(ip, path) {
-        return Err(StatusCode::TOO_MANY_REQUESTS);
-    }
-
-    Ok(next.run(req).await)
 }

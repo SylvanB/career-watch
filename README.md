@@ -1,4 +1,4 @@
-## Career Watch
+# Career Watch
 
 A SaaS application that monitors company career pages for job listing changes and notifies users by email when roles appear or disappear.
 
@@ -535,7 +535,7 @@ Dockerfile                   Multi-stage Rust build (api / worker / discovery)
 ## Testing
 
 ```sh
-cargo test        # 72 unit tests, ~0.9 s
+cargo test        # unit, integration, and documentation tests
 make test         # alias
 ```
 
@@ -555,3 +555,7 @@ make test         # alias
 | `scraper` | 3 | Hash determinism, hash sensitivity, CSS job extraction |
 | `config` | 2 | Required keys, BIND_ADDR default |
 | `bin/worker` | 12 | `diff_jobs` (add/remove/empty/identical/metadata-only), `notification_summary` (all 5 cases) |
+
+## License
+
+This project is licensed under the [MIT License](LICENSE).

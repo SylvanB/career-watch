@@ -4,3 +4,9 @@
 .idea/
 .vscode/
 *.log
+.DS_Store
+
+# Separate, unfinished C# port. Preserve it locally without mixing it into the
+# Rust application's public history.
+/dotnet/
+/career-watch.sln

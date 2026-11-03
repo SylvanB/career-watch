@@ -60,16 +60,20 @@ pub async fn test_selector(
             )
         })?;
 
-    let count  = selector_hit_count(&html, &payload.selector);
+    let count = selector_hit_count(&html, &payload.selector);
     let sample = selector_sample(&html, &payload.selector, 5);
 
     let verdict = match count {
-        0          => "no matches — selector may be wrong or page uses JavaScript rendering",
-        1          => "only 1 match — may work but a broader selector could be better",
-        2..=5      => "good — found a small number of jobs",
-        6..=50     => "great — found a healthy number of job listings",
-        _          => "found many elements — selector may be too broad",
+        0 => "no matches — selector may be wrong or page uses JavaScript rendering",
+        1 => "only 1 match — may work but a broader selector could be better",
+        2..=5 => "good — found a small number of jobs",
+        6..=50 => "great — found a healthy number of job listings",
+        _ => "found many elements — selector may be too broad",
     };
 
-    Ok(Json(SelectorTestResponse { count, sample, verdict }))
+    Ok(Json(SelectorTestResponse {
+        count,
+        sample,
+        verdict,
+    }))
 }

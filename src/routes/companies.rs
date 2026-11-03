@@ -33,7 +33,9 @@ pub struct CatalogParams {
     pub offset: i64,
 }
 
-fn default_limit() -> i64 { 48 }
+fn default_limit() -> i64 {
+    48
+}
 
 /// A company from the discovery catalog, enriched with the current user's
 /// watch status so the frontend can render the toggle without a second call.
@@ -127,7 +129,11 @@ pub async fn list_companies(
 
     let has_more = params.offset + limit < total;
 
-    Ok(Json(CatalogResponse { items, total, has_more }))
+    Ok(Json(CatalogResponse {
+        items,
+        total,
+        has_more,
+    }))
 }
 
 /// Watch a company from the catalog (idempotent).
@@ -159,7 +165,15 @@ pub async fn watch_company(
     .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({"error":"internal error"}))))?
     .ok_or_else(|| (StatusCode::NOT_FOUND, Json(serde_json::json!({"error":"company not found"}))))?;
 
-    let (name, career_url, _platform, _platform_id, job_selector, title_selector, location_selector) = company;
+    let (
+        name,
+        career_url,
+        _platform,
+        _platform_id,
+        job_selector,
+        title_selector,
+        location_selector,
+    ) = company;
 
     // Idempotency: return the existing watcher if already watching.
     if let Some(watcher_id) = sqlx::query_scalar::<_, Uuid>(
@@ -169,20 +183,28 @@ pub async fn watch_company(
     .bind(user.id)
     .fetch_optional(&state.db)
     .await
-    .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({"error":"internal error"}))))?
-    {
+    .map_err(|_| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({"error":"internal error"})),
+        )
+    })? {
         return Ok(Json(serde_json::json!({ "watcher_id": watcher_id })));
     }
 
     // Enforce tier watcher limit.
     let max = user.tier.max_watchers();
-    let current: i64 = sqlx::query_scalar(
-        "SELECT COUNT(*) FROM watchers WHERE user_id = $1 AND active = true",
-    )
-    .bind(user.id)
-    .fetch_one(&state.db)
-    .await
-    .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({"error":"internal error"}))))?;
+    let current: i64 =
+        sqlx::query_scalar("SELECT COUNT(*) FROM watchers WHERE user_id = $1 AND active = true")
+            .bind(user.id)
+            .fetch_one(&state.db)
+            .await
+            .map_err(|_| {
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(serde_json::json!({"error":"internal error"})),
+                )
+            })?;
 
     if current >= max {
         return Err((
@@ -215,7 +237,12 @@ pub async fn watch_company(
     .bind(location_selector.as_deref())
     .execute(&state.db)
     .await
-    .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({"error":"internal error"}))))?;
+    .map_err(|_| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({"error":"internal error"})),
+        )
+    })?;
 
     // Nudge if approaching the limit (≥ 80%).
     let after = current + 1;
@@ -236,13 +263,12 @@ pub async fn unwatch_company(
     Extension(user): Extension<AuthUser>,
     Path(company_id): Path<Uuid>,
 ) -> StatusCode {
-    let _ = sqlx::query(
-        "UPDATE watchers SET active = false WHERE company_id = $1 AND user_id = $2",
-    )
-    .bind(company_id)
-    .bind(user.id)
-    .execute(&state.db)
-    .await;
+    let _ =
+        sqlx::query("UPDATE watchers SET active = false WHERE company_id = $1 AND user_id = $2")
+            .bind(company_id)
+            .bind(user.id)
+            .execute(&state.db)
+            .await;
 
     StatusCode::NO_CONTENT
 }

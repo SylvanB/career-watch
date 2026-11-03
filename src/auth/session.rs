@@ -35,14 +35,12 @@ pub fn hash_token(token: &str) -> String {
 /// Persist a new session for `user_id` and return the raw token for the cookie.
 pub async fn create_session(db: &PgPool, user_id: Uuid) -> Result<String> {
     let (token, token_hash) = new_token();
-    sqlx::query(
-        "INSERT INTO sessions (id, user_id, token_hash) VALUES ($1, $2, $3)",
-    )
-    .bind(Uuid::new_v4())
-    .bind(user_id)
-    .bind(&token_hash)
-    .execute(db)
-    .await?;
+    sqlx::query("INSERT INTO sessions (id, user_id, token_hash) VALUES ($1, $2, $3)")
+        .bind(Uuid::new_v4())
+        .bind(user_id)
+        .bind(&token_hash)
+        .execute(db)
+        .await?;
     Ok(token)
 }
 
@@ -114,7 +112,6 @@ pub async fn create_email_token(
 }
 
 /// Validate and consume a one-time email token.
-
 ///
 /// Returns the `user_id` if the token is valid, unused, and not expired.
 /// Marks the token as used atomically so it cannot be replayed.

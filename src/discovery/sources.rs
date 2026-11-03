@@ -29,7 +29,10 @@ pub fn extract_domain(url: &str) -> Option<String> {
 
     ::url::Url::parse(&url)
         .ok()
-        .and_then(|u| u.host_str().map(|h| h.trim_start_matches("www.").to_string()))
+        .and_then(|u| {
+            u.host_str()
+                .map(|h| h.trim_start_matches("www.").to_string())
+        })
         .filter(|d| !d.is_empty() && d.contains('.'))
 }
 
@@ -239,7 +242,10 @@ impl SeedSource for GithubOrgMembersSource {
             };
 
             let blog = user.blog.unwrap_or_default();
-            let name = user.name.or(user.company).unwrap_or_else(|| member.login.clone());
+            let name = user
+                .name
+                .or(user.company)
+                .unwrap_or_else(|| member.login.clone());
 
             if let Some(domain) = extract_domain(&blog) {
                 leads.push(CompanyLead {

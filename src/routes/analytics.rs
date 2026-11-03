@@ -36,12 +36,10 @@ pub async fn company_metrics(
         return Err(StatusCode::NOT_FOUND);
     }
 
-    let metrics = compute_metrics(&state.db, company_id)
-        .await
-        .map_err(|e| {
-            tracing::error!("metrics computation failed: {e}");
-            StatusCode::INTERNAL_SERVER_ERROR
-        })?;
+    let metrics = compute_metrics(&state.db, company_id).await.map_err(|e| {
+        tracing::error!("metrics computation failed: {e}");
+        StatusCode::INTERNAL_SERVER_ERROR
+    })?;
 
     Ok(Json(serde_json::to_value(metrics).unwrap_or_default()))
 }
@@ -51,7 +49,7 @@ pub async fn company_metrics(
 #[derive(Deserialize)]
 pub struct JobListParams {
     #[serde(default)]
-    pub status: Option<String>,       // active | filled | all (default: active)
+    pub status: Option<String>, // active | filled | all (default: active)
     #[serde(default)]
     pub department: Option<String>,
     #[serde(default)]
@@ -62,7 +60,9 @@ pub struct JobListParams {
     pub offset: i64,
 }
 
-fn default_limit() -> i64 { 50 }
+fn default_limit() -> i64 {
+    50
+}
 
 #[derive(Debug, Serialize, sqlx::FromRow)]
 pub struct JobRow {
@@ -121,33 +121,33 @@ pub async fn company_jobs(
 /// Powers the signals dashboard view.
 #[derive(Serialize)]
 pub struct HiringSignals {
-    pub spikes:           Vec<SpikeSignal>,
-    pub new_regions:      Vec<RegionSignal>,
-    pub dept_expansions:  Vec<ExpansionSignal>,
+    pub spikes: Vec<SpikeSignal>,
+    pub new_regions: Vec<RegionSignal>,
+    pub dept_expansions: Vec<ExpansionSignal>,
 }
 
 #[derive(Serialize)]
 pub struct SpikeSignal {
-    pub company_id:   Uuid,
+    pub company_id: Uuid,
     pub company_name: String,
-    pub multiplier:   f64,
-    pub new_jobs_7d:  i64,
+    pub multiplier: f64,
+    pub new_jobs_7d: i64,
 }
 
 #[derive(Serialize)]
 pub struct RegionSignal {
-    pub company_id:   Uuid,
+    pub company_id: Uuid,
     pub company_name: String,
-    pub region:       String,
+    pub region: String,
 }
 
 #[derive(Serialize)]
 pub struct ExpansionSignal {
-    pub company_id:   Uuid,
+    pub company_id: Uuid,
     pub company_name: String,
-    pub department:   String,
-    pub growth_pct:   i64,
-    pub count_now:    i64,
+    pub department: String,
+    pub growth_pct: i64,
+    pub count_now: i64,
 }
 
 pub async fn hiring_signals(
@@ -168,20 +168,18 @@ pub async fn hiring_signals(
     .await
     .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
-    let mut spikes:       Vec<SpikeSignal>     = Vec::new();
-    let mut new_regions:  Vec<RegionSignal>    = Vec::new();
-    let mut expansions:   Vec<ExpansionSignal> = Vec::new();
+    let mut spikes: Vec<SpikeSignal> = Vec::new();
+    let mut new_regions: Vec<RegionSignal> = Vec::new();
+    let mut expansions: Vec<ExpansionSignal> = Vec::new();
 
     for (company_id, company_name) in &watched {
         // Only compute for companies with tracked jobs
-        let job_count: i64 = sqlx::query_scalar(
-            "SELECT COUNT(*) FROM jobs WHERE company_id = $1",
-        )
-        .bind(company_id)
-        .fetch_one(&state.db)
-        .await
-        .unwrap_or(Some(0))
-        .unwrap_or(0);
+        let job_count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM jobs WHERE company_id = $1")
+            .bind(company_id)
+            .fetch_one(&state.db)
+            .await
+            .unwrap_or(Some(0))
+            .unwrap_or(0);
 
         if job_count < 5 {
             continue; // not enough data yet
@@ -190,34 +188,42 @@ pub async fn hiring_signals(
         if let Ok(m) = compute_metrics(&state.db, *company_id).await {
             if m.spike.is_spike {
                 spikes.push(SpikeSignal {
-                    company_id:   *company_id,
+                    company_id: *company_id,
                     company_name: company_name.clone(),
-                    multiplier:   m.spike.multiplier.unwrap_or(0.0),
-                    new_jobs_7d:  m.spike.new_jobs_7d,
+                    multiplier: m.spike.multiplier.unwrap_or(0.0),
+                    new_jobs_7d: m.spike.new_jobs_7d,
                 });
             }
             for region in m.new_regions_30d {
                 new_regions.push(RegionSignal {
-                    company_id:   *company_id,
+                    company_id: *company_id,
                     company_name: company_name.clone(),
                     region,
                 });
             }
             for dept in m.expanding_departments {
                 expansions.push(ExpansionSignal {
-                    company_id:   *company_id,
+                    company_id: *company_id,
                     company_name: company_name.clone(),
-                    department:   dept.department,
-                    growth_pct:   dept.growth_pct,
-                    count_now:    dept.count_now,
+                    department: dept.department,
+                    growth_pct: dept.growth_pct,
+                    count_now: dept.count_now,
                 });
             }
         }
     }
 
     // Sort by signal strength
-    spikes.sort_by(|a, b| b.multiplier.partial_cmp(&a.multiplier).unwrap_or(std::cmp::Ordering::Equal));
+    spikes.sort_by(|a, b| {
+        b.multiplier
+            .partial_cmp(&a.multiplier)
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
     expansions.sort_by(|a, b| b.growth_pct.cmp(&a.growth_pct));
 
-    Ok(Json(HiringSignals { spikes, new_regions, dept_expansions: expansions }))
+    Ok(Json(HiringSignals {
+        spikes,
+        new_regions,
+        dept_expansions: expansions,
+    }))
 }

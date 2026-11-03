@@ -34,14 +34,13 @@ impl Platform {
     /// Canonical job board URL for platform-hosted companies, given their slug.
     pub fn board_url(&self, company_id: &str) -> Option<String> {
         match self {
-            Platform::Greenhouse => {
-                Some(format!("https://boards.greenhouse.io/{}", company_id))
-            }
+            Platform::Greenhouse => Some(format!("https://boards.greenhouse.io/{}", company_id)),
             Platform::Lever => Some(format!("https://jobs.lever.co/{}", company_id)),
             Platform::Ashby => Some(format!("https://jobs.ashbyhq.com/{}", company_id)),
-            Platform::SmartRecruiters => {
-                Some(format!("https://careers.smartrecruiters.com/{}", company_id))
-            }
+            Platform::SmartRecruiters => Some(format!(
+                "https://careers.smartrecruiters.com/{}",
+                company_id
+            )),
             _ => None,
         }
     }

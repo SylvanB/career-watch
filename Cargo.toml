@@ -2,6 +2,11 @@
 name = "career-watch"
 version = "0.1.0"
 edition = "2021"
+description = "A job-change monitoring SaaS with notifications, analytics, and automatic career-page discovery"
+license = "MIT"
+repository = "https://github.com/SylvanB/career-watch"
+keywords = ["job-search", "web-scraping", "saas", "axum"]
+categories = ["web-programming::http-server"]
 
 [[bin]]
 name = "career-watch-api"
@@ -50,4 +55,3 @@ time = { version = "0.3", features = ["std"] }
 
 [dev-dependencies]
 tokio = { version = "1.41", features = ["full"] }
-

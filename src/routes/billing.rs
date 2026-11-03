@@ -17,7 +17,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::billing::{
     stripe_client::verify_webhook_signature,
-    webhooks::handle_event,
+    webhooks::{handle_event, WebhookContext},
 };
 use crate::models::AuthUser;
 use crate::AppState;
@@ -68,13 +68,11 @@ pub async fn create_checkout(
                     StatusCode::SERVICE_UNAVAILABLE
                 })?;
 
-            let _ = sqlx::query(
-                "UPDATE users SET stripe_customer_id = $1 WHERE id = $2",
-            )
-            .bind(&id)
-            .bind(user.id)
-            .execute(&state.db)
-            .await;
+            let _ = sqlx::query("UPDATE users SET stripe_customer_id = $1 WHERE id = $2")
+                .bind(&id)
+                .bind(user.id)
+                .execute(&state.db)
+                .await;
 
             id
         }
@@ -107,9 +105,7 @@ pub async fn create_portal(
     State(state): State<AppState>,
     Extension(user): Extension<AuthUser>,
 ) -> Result<Json<PortalResponse>, StatusCode> {
-    let customer_id = user
-        .stripe_customer_id
-        .ok_or(StatusCode::BAD_REQUEST)?;
+    let customer_id = user.stripe_customer_id.ok_or(StatusCode::BAD_REQUEST)?;
 
     let return_url = format!("{}/dashboard", state.config.app_base_url);
 
@@ -137,7 +133,10 @@ pub async fn stripe_webhook(
     body: Bytes,
 ) -> StatusCode {
     // Verify Stripe-Signature header before touching the payload
-    let sig = match headers.get("stripe-signature").and_then(|v| v.to_str().ok()) {
+    let sig = match headers
+        .get("stripe-signature")
+        .and_then(|v| v.to_str().ok())
+    {
         Some(s) => s.to_owned(),
         None => {
             tracing::warn!("webhook received without Stripe-Signature header");
@@ -169,14 +168,15 @@ pub async fn stripe_webhook(
     let data = &event["data"];
 
     match handle_event(
-        &state.db,
-        &state.email,
+        WebhookContext {
+            db: &state.db,
+            email: &state.email,
+            price_business: &state.config.stripe_price_business,
+            app_base_url: &state.config.app_base_url,
+        },
         event_id,
         event_type,
         data,
-        &state.config.stripe_price_pro,
-        &state.config.stripe_price_business,
-        &state.config.app_base_url,
     )
     .await
     {

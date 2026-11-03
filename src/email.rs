@@ -31,9 +31,8 @@ impl EmailClient {
             }
             b.build()
         } else {
-            let mut b =
-                AsyncSmtpTransport::<Tokio1Executor>::builder_dangerous(&config.smtp_host)
-                    .port(config.smtp_port);
+            let mut b = AsyncSmtpTransport::<Tokio1Executor>::builder_dangerous(&config.smtp_host)
+                .port(config.smtp_port);
             if has_creds {
                 b = b.credentials(creds);
             }
@@ -83,9 +82,7 @@ impl EmailClient {
                 "The watched career page for {company_name} has changed.\n\n"
             ));
         } else {
-            body.push_str(&format!(
-                "New changes detected for {company_name}:\n\n"
-            ));
+            body.push_str(&format!("New changes detected for {company_name}:\n\n"));
 
             if !added.is_empty() {
                 body.push_str("New jobs:\n");
@@ -117,22 +114,17 @@ impl EmailClient {
 
     /// Welcome email sent after successful registration.
     pub async fn send_welcome_email(&self, to: &str) -> anyhow::Result<()> {
-        let body = format!(
-            "Welcome to Career Watch!\n\n\
+        let body = "Welcome to Career Watch!\n\n\
              You're now set up to monitor company career pages and receive \
              instant alerts when job listings change.\n\n\
              Get started by adding your first watcher in your dashboard.\n\n\
              — The Career Watch team\n"
-        );
+            .to_string();
         self.send(to, "Welcome to Career Watch", body).await
     }
 
     /// Email verification link.
-    pub async fn send_verification_email(
-        &self,
-        to: &str,
-        verify_url: &str,
-    ) -> anyhow::Result<()> {
+    pub async fn send_verification_email(&self, to: &str, verify_url: &str) -> anyhow::Result<()> {
         let body = format!(
             "Please verify your Career Watch email address.\n\n\
              Click the link below to confirm your email. \
@@ -144,11 +136,7 @@ impl EmailClient {
     }
 
     /// Password reset link. Expires in 1 hour.
-    pub async fn send_password_reset_email(
-        &self,
-        to: &str,
-        reset_url: &str,
-    ) -> anyhow::Result<()> {
+    pub async fn send_password_reset_email(&self, to: &str, reset_url: &str) -> anyhow::Result<()> {
         let body = format!(
             "You requested a password reset for your Career Watch account.\n\n\
              Click the link below to set a new password. \
@@ -156,7 +144,8 @@ impl EmailClient {
              {reset_url}\n\n\
              If you didn't request this, you can safely ignore this email.\n"
         );
-        self.send(to, "Reset your Career Watch password", body).await
+        self.send(to, "Reset your Career Watch password", body)
+            .await
     }
 
     // ── Billing emails ────────────────────────────────────────────────────────
@@ -190,7 +179,11 @@ impl EmailClient {
              Upgrade your plan to monitor more companies:\n\n\
              {upgrade_url}\n"
         );
-        self.send(to, "You're approaching your Career Watch watcher limit", body)
-            .await
+        self.send(
+            to,
+            "You're approaching your Career Watch watcher limit",
+            body,
+        )
+        .await
     }
 }

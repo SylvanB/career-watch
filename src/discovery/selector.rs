@@ -50,14 +50,16 @@ pub fn selector_hit_count(html: &str, selector: &str) -> usize {
     let document = Html::parse_document(html);
     match Selector::parse(selector) {
         Ok(sel) => document.select(&sel).count(),
-        Err(_)  => 0,
+        Err(_) => 0,
     }
 }
 
 /// Run a selector and return up to `limit` cleaned title strings.
 pub fn selector_sample(html: &str, selector: &str, limit: usize) -> Vec<String> {
     let document = Html::parse_document(html);
-    let Ok(sel) = Selector::parse(selector) else { return vec![] };
+    let Ok(sel) = Selector::parse(selector) else {
+        return vec![];
+    };
 
     document
         .select(&sel)
@@ -69,7 +71,11 @@ pub fn selector_sample(html: &str, selector: &str, limit: usize) -> Vec<String> 
                 .collect::<Vec<_>>()
                 .join(" ");
             let text = text.trim().to_string();
-            if text.len() >= MIN_TITLE_LEN { Some(text) } else { None }
+            if text.len() >= MIN_TITLE_LEN {
+                Some(text)
+            } else {
+                None
+            }
         })
         .take(limit)
         .collect()
@@ -79,8 +85,8 @@ pub fn selector_sample(html: &str, selector: &str, limit: usize) -> Vec<String> 
 
 fn platform_selector(platform: &Platform) -> Option<&'static str> {
     match platform {
-        Platform::Greenhouse     => Some("div.opening a"),
-        Platform::Lever          => Some("div.posting h5"),
+        Platform::Greenhouse => Some("div.opening a"),
+        Platform::Lever => Some("div.posting h5"),
         Platform::SmartRecruiters => Some(".job-list-item h4"),
         Platform::Ashby | Platform::Workday => None,
         _ => None,
@@ -91,12 +97,16 @@ fn platform_selector(platform: &Platform) -> Option<&'static str> {
 /// average text length in the title range.
 fn selector_ok(html: &str, selector: &str) -> bool {
     let document = Html::parse_document(html);
-    let Ok(sel) = Selector::parse(selector) else { return false };
+    let Ok(sel) = Selector::parse(selector) else {
+        return false;
+    };
     let els: Vec<_> = document.select(&sel).collect();
-    if els.len() < MIN_JOB_COUNT { return false; }
+    if els.len() < MIN_JOB_COUNT {
+        return false;
+    }
 
     let avg = avg_text_len(&els);
-    avg >= MIN_TITLE_LEN && avg <= MAX_TITLE_LEN
+    (MIN_TITLE_LEN..=MAX_TITLE_LEN).contains(&avg)
 }
 
 // ── Generic scan ──────────────────────────────────────────────────────────────
@@ -149,7 +159,7 @@ fn try_selector(document: &Html, pattern: &str) -> Option<String> {
     }
 
     let avg = avg_text_len(&elements);
-    if avg < MIN_TITLE_LEN || avg > MAX_TITLE_LEN {
+    if !(MIN_TITLE_LEN..=MAX_TITLE_LEN).contains(&avg) {
         return None; // Container element or empty — skip
     }
 
@@ -164,14 +174,16 @@ fn pattern_ok(document: &Html, pattern: &str) -> bool {
         Ok(sel) => {
             let els: Vec<_> = document.select(&sel).collect();
             let avg = avg_text_len(&els);
-            avg >= MIN_TITLE_LEN && avg <= MAX_TITLE_LEN
+            (MIN_TITLE_LEN..=MAX_TITLE_LEN).contains(&avg)
         }
         Err(_) => false,
     }
 }
 
 fn avg_text_len(elements: &[scraper::ElementRef]) -> usize {
-    if elements.is_empty() { return 0; }
+    if elements.is_empty() {
+        return 0;
+    }
     let total: usize = elements
         .iter()
         .map(|el| el.text().collect::<String>().trim().len())
@@ -182,8 +194,15 @@ fn avg_text_len(elements: &[scraper::ElementRef]) -> usize {
 // ── Heuristic scan ────────────────────────────────────────────────────────────
 
 const JOB_CLASS_KEYWORDS: &[&str] = &[
-    "job", "position", "opening", "role", "career",
-    "vacancy", "opportunity", "listing", "posting",
+    "job",
+    "position",
+    "opening",
+    "role",
+    "career",
+    "vacancy",
+    "opportunity",
+    "listing",
+    "posting",
 ];
 
 fn heuristic_scan(document: &Html) -> Option<String> {
@@ -202,7 +221,7 @@ fn heuristic_scan(document: &Html) -> Option<String> {
     for el in document.select(&sel) {
         // Text length gate — ignore elements that are too short or too long.
         let text_len = el.text().collect::<String>().trim().len();
-        if text_len < MIN_TITLE_LEN || text_len > MAX_TITLE_LEN {
+        if !(MIN_TITLE_LEN..=MAX_TITLE_LEN).contains(&text_len) {
             continue;
         }
 
@@ -297,8 +316,10 @@ mod tests {
             r#"<div class="job-nav">{t}</div><div class="job-nav">{t}</div><div class="job-nav">{t}</div>"#,
             t = long_text
         );
-        assert!(detect_job_selector(&html, &Platform::Unknown).is_none(),
-            "container with long text should not be accepted as a job selector");
+        assert!(
+            detect_job_selector(&html, &Platform::Unknown).is_none(),
+            "container with long text should not be accepted as a job selector"
+        );
     }
 
     #[test]

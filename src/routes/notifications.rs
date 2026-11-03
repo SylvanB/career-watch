@@ -26,7 +26,9 @@ pub struct ListParams {
     pub unread_only: bool,
 }
 
-fn default_limit() -> i64 { 50 }
+fn default_limit() -> i64 {
+    50
+}
 
 #[derive(Debug, Serialize, sqlx::FromRow)]
 pub struct NotificationRow {
@@ -82,7 +84,8 @@ pub async fn list_notifications(
         .await
     };
 
-    rows.map(Json).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)
+    rows.map(Json)
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)
 }
 
 pub async fn mark_all_read(

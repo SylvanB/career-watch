@@ -1,5 +1,5 @@
 import { defineConfig } from 'astro/config';
-import tailwind from '@astrojs/tailwind';
+import tailwindcss from '@tailwindcss/vite';
 
 // Shared proxy target + options — explicit configuration ensures the Cookie
 // header is forwarded and the Host header matches what the Rust API expects.
@@ -21,9 +21,9 @@ const proxyOpts = {
 };
 
 export default defineConfig({
-  integrations: [tailwind({ applyBaseStyles: false })],
   output: 'static',
   vite: {
+    plugins: [tailwindcss()],
     server: {
       proxy: {
         '/api':     proxyOpts,

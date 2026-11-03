@@ -20,8 +20,8 @@
 use career_watch::analytics::categorize::{categorize_department, categorize_location};
 use career_watch::analytics::metrics::upsert_daily_snapshot;
 use career_watch::config::AppConfig;
-use career_watch::discovery::llm_selector::extract_jobs_via_llm;
 use career_watch::db::create_pool;
+use career_watch::discovery::llm_selector::extract_jobs_via_llm;
 use career_watch::email::EmailClient;
 use career_watch::models::{JobPosting, SubscriptionTier};
 use career_watch::scraper::PageScraper;
@@ -49,7 +49,14 @@ async fn main() -> anyhow::Result<()> {
     let email = EmailClient::from_config(&config)?;
     let scraper = PageScraper::new();
 
-    run_once(&pool, &email, &scraper, &config.ollama_host, &config.ollama_extraction_model).await?;
+    run_once(
+        &pool,
+        &email,
+        &scraper,
+        &config.ollama_host,
+        &config.ollama_extraction_model,
+    )
+    .await?;
 
     Ok(())
 }
@@ -105,8 +112,8 @@ async fn run_once(
         let now = Utc::now();
 
         tracing::info!(
-            company  = watch.company_name,
-            has_selector  = watch.job_selector.is_some(),
+            company = watch.company_name,
+            has_selector = watch.job_selector.is_some(),
             has_company_id = watch.company_id.is_some(),
             "processing watcher"
         );
@@ -124,7 +131,9 @@ async fn run_once(
 
         // Determine which extraction mode to use.
         // Priority: LLM (when Ollama available) → CSS selectors → hash-only.
-        let has_selector = watch.job_selector.as_deref()
+        let has_selector = watch
+            .job_selector
+            .as_deref()
             .map(|s| !s.trim().is_empty())
             .unwrap_or(false);
 
@@ -139,7 +148,15 @@ async fn run_once(
 
             // Try LLM extraction first; fall back to CSS selectors.
             let new_jobs_opt: Option<Vec<JobPosting>> = if use_llm {
-                match extract_jobs_via_llm(&html, &watch.url, &watch.company_name, ollama_host, ollama_model).await {
+                match extract_jobs_via_llm(
+                    &html,
+                    &watch.url,
+                    &watch.company_name,
+                    ollama_host,
+                    ollama_model,
+                )
+                .await
+                {
                     Ok(jobs) => jobs,
                     Err(e) => {
                         tracing::warn!(company = watch.company_name, "LLM extraction error: {e}");
@@ -155,27 +172,31 @@ async fn run_once(
             let new_jobs = match new_jobs_opt {
                 Some(jobs) => {
                     tracing::info!(
-                        company   = watch.company_name,
+                        company = watch.company_name,
                         extracted = jobs.len(),
-                        mode      = "llm",
+                        mode = "llm",
                         "job extraction complete"
                     );
                     jobs
                 }
                 None if has_selector => {
                     let selector = watch.job_selector.as_deref().unwrap();
-                    match scraper.fetch_jobs_with_selectors(
-                        &watch.url, selector,
-                        watch.title_selector.as_deref(),
-                        watch.location_selector.as_deref(),
-                        &watch.company_name,
-                    ).await {
+                    match scraper
+                        .fetch_jobs_with_selectors(
+                            &watch.url,
+                            selector,
+                            watch.title_selector.as_deref(),
+                            watch.location_selector.as_deref(),
+                            &watch.company_name,
+                        )
+                        .await
+                    {
                         Ok(jobs) => {
                             tracing::info!(
-                                company   = watch.company_name,
-                                selector  = selector,
+                                company = watch.company_name,
+                                selector = selector,
                                 extracted = jobs.len(),
-                                mode      = "css",
+                                mode = "css",
                                 "job extraction complete"
                             );
                             jobs
@@ -187,7 +208,10 @@ async fn run_once(
                     }
                 }
                 None => {
-                    tracing::info!(company = watch.company_name, "LLM unavailable and no selector — hash-only");
+                    tracing::info!(
+                        company = watch.company_name,
+                        "LLM unavailable and no selector — hash-only"
+                    );
                     Vec::new()
                 }
             };
@@ -195,7 +219,10 @@ async fn run_once(
             let (added, removed) = diff_jobs(&old_jobs, &new_jobs);
             (added, removed, Some(new_jobs))
         } else {
-            tracing::info!(company = watch.company_name, "hash-only mode (no Ollama, no selector)");
+            tracing::info!(
+                company = watch.company_name,
+                "hash-only mode (no Ollama, no selector)"
+            );
             (Vec::new(), Vec::new(), None)
         };
 
@@ -254,10 +281,16 @@ async fn run_once(
                     jobs       = current_jobs.len(),
                     "tracking jobs"
                 );
-                if let Err(e) = track_jobs(pool, *company_id, current_jobs, &removed_jobs, now).await {
+                if let Err(e) =
+                    track_jobs(pool, *company_id, current_jobs, &removed_jobs, now).await
+                {
                     tracing::warn!(company = watch.company_name, "job tracking failed: {e}");
                 } else {
-                    tracing::info!(company = watch.company_name, jobs = current_jobs.len(), "jobs upserted");
+                    tracing::info!(
+                        company = watch.company_name,
+                        jobs = current_jobs.len(),
+                        "jobs upserted"
+                    );
                 }
                 let today = now.date_naive();
                 if let Err(e) = upsert_daily_snapshot(pool, *company_id, today).await {
@@ -265,10 +298,16 @@ async fn run_once(
                 }
             }
             (None, Some(_)) => {
-                tracing::info!(company = watch.company_name, "skipping job tracking: no company_id (custom watcher)");
+                tracing::info!(
+                    company = watch.company_name,
+                    "skipping job tracking: no company_id (custom watcher)"
+                );
             }
             (Some(_), None) => {
-                tracing::info!(company = watch.company_name, "skipping job tracking: no job_selector");
+                tracing::info!(
+                    company = watch.company_name,
+                    "skipping job tracking: no job_selector"
+                );
             }
             _ => {}
         }
@@ -297,7 +336,12 @@ async fn run_once(
 
 /// Stable hash for a job: SHA-256 of `"<company_id>:<lower_title>:<lower_location>"`.
 fn job_hash(company_id: Uuid, title: &str, location: Option<&str>) -> String {
-    let input = format!("{}:{}:{}", company_id, title.to_lowercase(), location.unwrap_or("").to_lowercase());
+    let input = format!(
+        "{}:{}:{}",
+        company_id,
+        title.to_lowercase(),
+        location.unwrap_or("").to_lowercase()
+    );
     let mut h = Sha256::new();
     h.update(input.as_bytes());
     h.finalize().iter().map(|b| format!("{:02x}", b)).collect()
@@ -322,7 +366,9 @@ async fn track_jobs(
     for job in current_jobs {
         let hash = job_hash(company_id, &job.title, job.location.as_deref());
         // Use LLM-provided department when available; fall back to keyword inference.
-        let dept = job.department.as_deref()
+        let dept = job
+            .department
+            .as_deref()
             .unwrap_or_else(|| categorize_department(&job.title));
         let (region, is_remote) = categorize_location(job.location.as_deref());
 
@@ -383,7 +429,12 @@ fn notification_summary(added: &[JobPosting], removed: &[JobPosting]) -> String 
         (0, 0) => "Career page updated".to_string(),
         (a, 0) => format!("{} new job{} added", a, if a == 1 { "" } else { "s" }),
         (0, r) => format!("{} job{} removed", r, if r == 1 { "" } else { "s" }),
-        (a, r) => format!("{} job{} added, {} removed", a, if a == 1 { "" } else { "s" }, r),
+        (a, r) => format!(
+            "{} job{} added, {} removed",
+            a,
+            if a == 1 { "" } else { "s" },
+            r
+        ),
     }
 }
 
@@ -391,7 +442,7 @@ fn diff_jobs(old: &[JobPosting], new: &[JobPosting]) -> (Vec<JobPosting>, Vec<Jo
     use std::collections::HashSet;
     let old_set: HashSet<_> = old.iter().cloned().collect();
     let new_set: HashSet<_> = new.iter().cloned().collect();
-    let added   = new_set.difference(&old_set).cloned().collect();
+    let added = new_set.difference(&old_set).cloned().collect();
     let removed = old_set.difference(&new_set).cloned().collect();
     (added, removed)
 }
@@ -402,7 +453,14 @@ mod tests {
     use career_watch::models::JobPosting;
 
     fn job(title: &str) -> JobPosting {
-        JobPosting { title: title.into(), company: "Acme".into(), location: None, department: None, posted_text: None, url: None }
+        JobPosting {
+            title: title.into(),
+            company: "Acme".into(),
+            location: None,
+            department: None,
+            posted_text: None,
+            url: None,
+        }
     }
 
     #[test]
@@ -415,25 +473,58 @@ mod tests {
     }
 
     #[test]
-    fn diff_empty_lists() { let (a, r) = diff_jobs(&[], &[]); assert!(a.is_empty()); assert!(r.is_empty()); }
+    fn diff_empty_lists() {
+        let (a, r) = diff_jobs(&[], &[]);
+        assert!(a.is_empty());
+        assert!(r.is_empty());
+    }
     #[test]
-    fn diff_all_added()   { let (a, r) = diff_jobs(&[], &[job("X"), job("Y")]); assert_eq!(a.len(), 2); assert!(r.is_empty()); }
+    fn diff_all_added() {
+        let (a, r) = diff_jobs(&[], &[job("X"), job("Y")]);
+        assert_eq!(a.len(), 2);
+        assert!(r.is_empty());
+    }
     #[test]
-    fn diff_all_removed() { let (a, r) = diff_jobs(&[job("X"), job("Y")], &[]); assert!(a.is_empty()); assert_eq!(r.len(), 2); }
+    fn diff_all_removed() {
+        let (a, r) = diff_jobs(&[job("X"), job("Y")], &[]);
+        assert!(a.is_empty());
+        assert_eq!(r.len(), 2);
+    }
     #[test]
     fn diff_metadata_only_change() {
-        let old = vec![JobPosting { title: "Eng".into(), company: "Acme".into(), location: None, department: None, posted_text: Some("1h ago".into()), url: None }];
-        let new = vec![JobPosting { title: "Eng".into(), company: "Acme".into(), location: None, department: None, posted_text: Some("2h ago".into()), url: None }];
+        let old = vec![JobPosting {
+            title: "Eng".into(),
+            company: "Acme".into(),
+            location: None,
+            department: None,
+            posted_text: Some("1h ago".into()),
+            url: None,
+        }];
+        let new = vec![JobPosting {
+            title: "Eng".into(),
+            company: "Acme".into(),
+            location: None,
+            department: None,
+            posted_text: Some("2h ago".into()),
+            url: None,
+        }];
         let (a, r) = diff_jobs(&old, &new);
-        assert!(a.is_empty()); assert!(r.is_empty());
+        assert!(a.is_empty());
+        assert!(r.is_empty());
     }
 
     #[test]
     fn summary_all_cases() {
-        assert_eq!(notification_summary(&[], &[]),                        "Career page updated");
-        assert_eq!(notification_summary(&[job("A")], &[]),                "1 new job added");
-        assert_eq!(notification_summary(&[job("A"), job("B")], &[]),      "2 new jobs added");
-        assert_eq!(notification_summary(&[], &[job("A")]),                "1 job removed");
-        assert_eq!(notification_summary(&[job("A")], &[job("B")]),        "1 job added, 1 removed");
+        assert_eq!(notification_summary(&[], &[]), "Career page updated");
+        assert_eq!(notification_summary(&[job("A")], &[]), "1 new job added");
+        assert_eq!(
+            notification_summary(&[job("A"), job("B")], &[]),
+            "2 new jobs added"
+        );
+        assert_eq!(notification_summary(&[], &[job("A")]), "1 job removed");
+        assert_eq!(
+            notification_summary(&[job("A")], &[job("B")]),
+            "1 job added, 1 removed"
+        );
     }
 }

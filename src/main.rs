@@ -40,7 +40,13 @@ async fn main() -> anyhow::Result<()> {
     let stripe = StripeClient::new(config.stripe_secret_key.clone())?;
     let config = Arc::new(config);
 
-    let state = AppState { db, email, scraper, stripe, config: config.clone() };
+    let state = AppState {
+        db,
+        email,
+        scraper,
+        stripe,
+        config: config.clone(),
+    };
 
     let addr: SocketAddr = config.bind_addr.parse()?;
     let listener = tokio::net::TcpListener::bind(addr).await?;

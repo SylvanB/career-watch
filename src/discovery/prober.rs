@@ -36,7 +36,7 @@ use scraper::{Html, Selector};
 use std::time::Duration;
 use tracing::{debug, info, warn};
 
-use super::llm_selector::{detect_selectors_via_llm, preprocess_html};
+use super::llm_selector::detect_selectors_via_llm;
 use super::platform::{detect_platform, extract_platform_id, Platform};
 use super::selector::detect_job_selector;
 use super::validator::has_job_listings;
@@ -72,7 +72,7 @@ impl Candidate {
         source: &'static str,
     ) -> Self {
         let job_selector = detect_job_selector(html, &platform);
-        let title_selector    = None; // populated later by LlmSelectorStrategy
+        let title_selector = None; // populated later by LlmSelectorStrategy
         let location_selector = None;
         let mut score: u32 = 1;
 
@@ -103,15 +103,25 @@ impl Candidate {
 
         // Source reliability
         score += match source {
-            "ats_embed"     => 4, // ATS embed in homepage — most reliable
+            "ats_embed" => 4,     // ATS embed in homepage — most reliable
             "homepage_link" => 3, // company explicitly linked to it
-            "sitemap"       => 2, // in the sitemap
-            "subdomain"     => 2, // career subdomain found
-            "path_probe"    => 1, // blind path guessing
-            _               => 0,
+            "sitemap" => 2,       // in the sitemap
+            "subdomain" => 2,     // career subdomain found
+            "path_probe" => 1,    // blind path guessing
+            _ => 0,
         };
 
-        Self { url, score, platform, platform_id, job_count_estimate: job_count, job_selector, title_selector, location_selector, source }
+        Self {
+            url,
+            score,
+            platform,
+            platform_id,
+            job_count_estimate: job_count,
+            job_selector,
+            title_selector,
+            location_selector,
+            source,
+        }
     }
 }
 
@@ -188,7 +198,11 @@ impl ProbeContext {
     /// Add a candidate, silently dropping duplicates (same normalised URL).
     pub fn add(&mut self, candidate: Candidate) {
         let norm = normalise_url(&candidate.url);
-        if !self.candidates.iter().any(|c| normalise_url(&c.url) == norm) {
+        if !self
+            .candidates
+            .iter()
+            .any(|c| normalise_url(&c.url) == norm)
+        {
             debug!(
                 url = %candidate.url,
                 score = candidate.score,
@@ -252,7 +266,11 @@ impl ProbePipeline {
 
             if let Some(best) = ctx.best() {
                 if best.score >= self.high_confidence_threshold {
-                    debug!(domain, score = best.score, "high confidence — stopping early");
+                    debug!(
+                        domain,
+                        score = best.score,
+                        "high confidence — stopping early"
+                    );
                     break;
                 }
             }
@@ -274,11 +292,7 @@ impl ProbePipeline {
 // ── Shared helper ─────────────────────────────────────────────────────────────
 
 /// Fetch a URL, validate it as a career page, and return a scored Candidate.
-async fn probe_url(
-    client: &Client,
-    url: &str,
-    source: &'static str,
-) -> Result<Option<Candidate>> {
+async fn probe_url(client: &Client, url: &str, source: &'static str) -> Result<Option<Candidate>> {
     let resp = match client.get(url).send().await {
         Ok(r) => r,
         Err(_) => return Ok(None),
@@ -299,7 +313,12 @@ async fn probe_url(
     }
 
     Ok(Some(Candidate::new(
-        final_url, platform, platform_id, job_count, &html, source,
+        final_url,
+        platform,
+        platform_id,
+        job_count,
+        &html,
+        source,
     )))
 }
 
@@ -311,7 +330,9 @@ pub struct HomepageFetchStrategy;
 
 #[async_trait::async_trait]
 impl ProbeStrategy for HomepageFetchStrategy {
-    fn name(&self) -> &'static str { "homepage_fetch" }
+    fn name(&self) -> &'static str {
+        "homepage_fetch"
+    }
 
     async fn run(&self, ctx: &mut ProbeContext, client: &Client) -> Result<()> {
         let resp = client.get(&ctx.base_url).send().await?;
@@ -332,7 +353,9 @@ pub struct AtsEmbedStrategy;
 
 #[async_trait::async_trait]
 impl ProbeStrategy for AtsEmbedStrategy {
-    fn name(&self) -> &'static str { "ats_embed" }
+    fn name(&self) -> &'static str {
+        "ats_embed"
+    }
 
     async fn run(&self, ctx: &mut ProbeContext, client: &Client) -> Result<()> {
         let (html, homepage_url) = match (&ctx.homepage_html, &ctx.homepage_final_url) {
@@ -361,7 +384,12 @@ impl ProbeStrategy for AtsEmbedStrategy {
                     let (_, job_count) = has_job_listings(&html, &platform);
                     let platform_id = extract_platform_id(&platform, &board_url);
                     ctx.add(Candidate::new(
-                        board_url, platform, platform_id, job_count, "", "ats_embed",
+                        board_url,
+                        platform,
+                        platform_id,
+                        job_count,
+                        "",
+                        "ats_embed",
                     ));
                 }
             }
@@ -416,14 +444,15 @@ fn find_ats_board_url(html: &str, platform: &Platform) -> Option<String> {
         _ => {
             // Generic pattern: find `needle/{slug}` in the HTML
             let patterns: &[(&str, &str)] = match platform {
-                Platform::Lever      => &[("jobs.lever.co/",        "https://jobs.lever.co/")],
-                Platform::Ashby      => &[
-                    ("jobs.ashbyhq.com/",     "https://jobs.ashbyhq.com/"),
+                Platform::Lever => &[("jobs.lever.co/", "https://jobs.lever.co/")],
+                Platform::Ashby => &[
+                    ("jobs.ashbyhq.com/", "https://jobs.ashbyhq.com/"),
                     ("app.ashbyhq.com/jobs/", "https://jobs.ashbyhq.com/"),
                 ],
-                Platform::SmartRecruiters => &[
-                    ("careers.smartrecruiters.com/", "https://careers.smartrecruiters.com/"),
-                ],
+                Platform::SmartRecruiters => &[(
+                    "careers.smartrecruiters.com/",
+                    "https://careers.smartrecruiters.com/",
+                )],
                 _ => return None,
             };
 
@@ -454,7 +483,9 @@ fn guess_ats_board_url(platform: &Platform, domain: &str) -> Option<String> {
     // Extract the first label of the domain (before the first dot).
     // "mercury.com" → "mercury", "mistral.ai" → "mistral"
     let slug = domain.split('.').next()?.to_lowercase();
-    if slug.len() < 2 { return None; }
+    if slug.len() < 2 {
+        return None;
+    }
     platform.board_url(&slug)
 }
 
@@ -467,20 +498,37 @@ fn guess_ats_board_url(platform: &Platform, domain: &str) -> Option<String> {
 pub struct HomepageLinkStrategy;
 
 const CAREER_KEYWORDS: &[&str] = &[
-    "careers", "jobs", "hiring", "join us", "join-us",
-    "work with us", "work-with-us", "we're hiring", "open positions",
-    "open roles", "opportunities", "vacancies",
+    "careers",
+    "jobs",
+    "hiring",
+    "join us",
+    "join-us",
+    "work with us",
+    "work-with-us",
+    "we're hiring",
+    "open positions",
+    "open roles",
+    "opportunities",
+    "vacancies",
 ];
 
 const SKIP_DOMAINS: &[&str] = &[
-    "linkedin.com", "indeed.com", "glassdoor.com",
-    "twitter.com", "x.com", "facebook.com", "instagram.com",
-    "youtube.com", "github.com",
+    "linkedin.com",
+    "indeed.com",
+    "glassdoor.com",
+    "twitter.com",
+    "x.com",
+    "facebook.com",
+    "instagram.com",
+    "youtube.com",
+    "github.com",
 ];
 
 #[async_trait::async_trait]
 impl ProbeStrategy for HomepageLinkStrategy {
-    fn name(&self) -> &'static str { "homepage_link" }
+    fn name(&self) -> &'static str {
+        "homepage_link"
+    }
 
     async fn run(&self, ctx: &mut ProbeContext, client: &Client) -> Result<()> {
         let html = match &ctx.homepage_html {
@@ -512,7 +560,9 @@ impl ProbeStrategy for HomepageLinkStrategy {
 
 fn extract_career_links(html: &str, base_url: &str) -> Vec<String> {
     let document = Html::parse_document(html);
-    let Ok(selector) = Selector::parse("a[href]") else { return vec![] };
+    let Ok(selector) = Selector::parse("a[href]") else {
+        return vec![];
+    };
     let base = url::Url::parse(base_url).ok();
 
     let mut found = Vec::new();
@@ -539,7 +589,7 @@ fn extract_career_links(html: &str, base_url: &str) -> Vec<String> {
                 None => continue,
             }
         } else {
-            continue
+            continue;
         };
 
         // Skip external job boards (keep ATS platforms)
@@ -567,7 +617,9 @@ const CAREER_SUBDOMAINS: &[&str] = &["jobs", "careers", "work", "apply", "career
 
 #[async_trait::async_trait]
 impl ProbeStrategy for CareerSubdomainStrategy {
-    fn name(&self) -> &'static str { "subdomain" }
+    fn name(&self) -> &'static str {
+        "subdomain"
+    }
 
     async fn run(&self, ctx: &mut ProbeContext, client: &Client) -> Result<()> {
         // Skip if the domain already has more than one label before the TLD
@@ -583,20 +635,19 @@ impl ProbeStrategy for CareerSubdomainStrategy {
             .collect();
 
         // HEAD all subdomains in parallel — fast existence check
-        let head_results = join_all(
-            candidates.iter().map(|url| {
-                let c = client.clone();
-                let u = url.clone();
-                async move {
-                    let ok = c.head(&u)
-                        .send()
-                        .await
-                        .map(|r| r.status().is_success())
-                        .unwrap_or(false);
-                    (u, ok)
-                }
-            }),
-        )
+        let head_results = join_all(candidates.iter().map(|url| {
+            let c = client.clone();
+            let u = url.clone();
+            async move {
+                let ok = c
+                    .head(&u)
+                    .send()
+                    .await
+                    .map(|r| r.status().is_success())
+                    .unwrap_or(false);
+                (u, ok)
+            }
+        }))
         .await;
 
         // GET + validate only the ones that responded 200
@@ -626,7 +677,9 @@ pub struct SitemapStrategy;
 
 #[async_trait::async_trait]
 impl ProbeStrategy for SitemapStrategy {
-    fn name(&self) -> &'static str { "sitemap" }
+    fn name(&self) -> &'static str {
+        "sitemap"
+    }
 
     async fn run(&self, ctx: &mut ProbeContext, client: &Client) -> Result<()> {
         let mut sitemap_urls = vec![format!("{}/sitemap.xml", ctx.base_url)];
@@ -670,17 +723,25 @@ impl ProbeStrategy for SitemapStrategy {
 }
 
 async fn fetch_sitemap_career_urls(client: &Client, url: &str) -> Vec<String> {
-    let Ok(resp) = client.get(url).send().await else { return vec![] };
-    if !resp.status().is_success() { return vec![] }
-    let Ok(xml) = resp.text().await else { return vec![] };
+    let Ok(resp) = client.get(url).send().await else {
+        return vec![];
+    };
+    if !resp.status().is_success() {
+        return vec![];
+    }
+    let Ok(xml) = resp.text().await else {
+        return vec![];
+    };
 
     let mut urls: Vec<String> = xml
         .lines()
         .filter_map(|line| {
-            if !line.contains("<loc>") { return None; }
+            if !line.contains("<loc>") {
+                return None;
+            }
             let start = line.find("<loc>")? + 5;
-            let end   = line.find("</loc>")?;
-            let loc   = &line[start..end];
+            let end = line.find("</loc>")?;
+            let loc = &line[start..end];
             let lower = loc.to_lowercase();
             let is_career = CAREER_KEYWORDS.iter().any(|k| lower.contains(k));
             // Prefer shallow URLs (main careers page, not individual job listings)
@@ -726,7 +787,9 @@ const CAREER_PATHS: &[&str] = &[
 
 #[async_trait::async_trait]
 impl ProbeStrategy for PathProbeStrategy {
-    fn name(&self) -> &'static str { "path_probe" }
+    fn name(&self) -> &'static str {
+        "path_probe"
+    }
 
     async fn run(&self, ctx: &mut ProbeContext, client: &Client) -> Result<()> {
         let base = ctx.base_url.clone();
@@ -736,7 +799,8 @@ impl ProbeStrategy for PathProbeStrategy {
             let url = format!("{}{}", base, path);
             let c = client.clone();
             async move {
-                let ok = c.head(&url)
+                let ok = c
+                    .head(&url)
                     .send()
                     .await
                     .map(|r| r.status().is_success())
@@ -768,11 +832,6 @@ impl ProbeStrategy for PathProbeStrategy {
 
 // ── Public entry point ────────────────────────────────────────────────────────
 
-/// High-level career page prober.
-///
-/// Constructs and runs the default strategy pipeline. New strategies can be
-/// appended to `pipeline` in [`CareerProber::new`] without touching any other
-/// code.
 // ── Strategy 7: LlmSelector ───────────────────────────────────────────────────
 
 /// Ask a local Ollama model to identify job listing selectors from the HTML
@@ -785,13 +844,15 @@ impl ProbeStrategy for PathProbeStrategy {
 ///
 /// Silently skips when Ollama is not configured or unreachable.
 pub struct LlmSelectorStrategy {
-    pub ollama_host:  String,
+    pub ollama_host: String,
     pub ollama_model: String,
 }
 
 #[async_trait::async_trait]
 impl ProbeStrategy for LlmSelectorStrategy {
-    fn name(&self) -> &'static str { "llm_selector" }
+    fn name(&self) -> &'static str {
+        "llm_selector"
+    }
 
     async fn run(&self, ctx: &mut ProbeContext, client: &Client) -> Result<()> {
         if self.ollama_host.is_empty() {
@@ -810,15 +871,24 @@ impl ProbeStrategy for LlmSelectorStrategy {
             }
         }
 
-        info!(domain = ctx.domain, model = self.ollama_model, "running LLM selector detection");
+        info!(
+            domain = ctx.domain,
+            model = self.ollama_model,
+            "running LLM selector detection"
+        );
 
-        match detect_selectors_via_llm(&html, &page_url, &self.ollama_host, &self.ollama_model).await {
+        match detect_selectors_via_llm(&html, &page_url, &self.ollama_host, &self.ollama_model)
+            .await
+        {
             Ok(Some(result)) => {
                 // The LLM found a URL hint but no selector — the current page has no
                 // jobs. Probe the hint URL directly, which may be the real ATS board.
                 if let Some(ref hint) = result.jobs_url_hint {
                     if result.selector.is_empty() {
-                        info!(domain = ctx.domain, hint, "LLM found jobs URL hint — probing");
+                        info!(
+                            domain = ctx.domain,
+                            hint, "LLM found jobs URL hint — probing"
+                        );
                         if let Ok(Some(candidate)) = probe_url(client, hint, "llm_url_hint").await {
                             ctx.add(candidate);
                             return Ok(());
@@ -829,12 +899,12 @@ impl ProbeStrategy for LlmSelectorStrategy {
                 // Normal path: apply selectors to best candidate.
                 if !result.selector.is_empty() {
                     if let Some(best) = ctx.candidates.iter_mut().max_by_key(|c| c.score) {
-                        best.job_selector      = Some(result.selector.clone());
-                        best.title_selector    = result.title_within.clone();
+                        best.job_selector = Some(result.selector.clone());
+                        best.title_selector = result.title_within.clone();
                         best.location_selector = result.location_within.clone();
-                        best.score            += 2;
+                        best.score += 2;
                         info!(
-                            domain   = ctx.domain,
+                            domain = ctx.domain,
                             selector = best.job_selector.as_deref().unwrap_or(""),
                             "LLM selector applied"
                         );
@@ -842,13 +912,18 @@ impl ProbeStrategy for LlmSelectorStrategy {
                 }
             }
             Ok(None) => debug!(domain = ctx.domain, "LLM returned no usable selector"),
-            Err(e)   => warn!(domain = ctx.domain, "LLM selector detection failed: {e}"),
+            Err(e) => warn!(domain = ctx.domain, "LLM selector detection failed: {e}"),
         }
 
         Ok(())
     }
 }
 
+/// High-level career page prober.
+///
+/// Constructs and runs the default strategy pipeline. New strategies can be
+/// appended to `pipeline` in [`CareerProber::new`] without touching any other
+/// code.
 pub struct CareerProber {
     pipeline: ProbePipeline,
 }
@@ -867,7 +942,7 @@ impl CareerProber {
             .build()?;
 
         let llm = LlmSelectorStrategy {
-            ollama_host:  ollama_host.to_string(),
+            ollama_host: ollama_host.to_string(),
             ollama_model: ollama_model.to_string(),
         };
 
@@ -902,9 +977,13 @@ mod tests {
 
     #[test]
     fn finds_greenhouse_board_url() {
-        let html = r#"<iframe src="https://boards.greenhouse.io/embed/job_board?for=acmecorp"></iframe>"#;
+        let html =
+            r#"<iframe src="https://boards.greenhouse.io/embed/job_board?for=acmecorp"></iframe>"#;
         let url = find_ats_board_url(html, &Platform::Greenhouse);
-        assert_eq!(url.as_deref(), Some("https://boards.greenhouse.io/acmecorp"));
+        assert_eq!(
+            url.as_deref(),
+            Some("https://boards.greenhouse.io/acmecorp")
+        );
     }
 
     #[test]
@@ -969,7 +1048,10 @@ mod tests {
             "",
             "path_probe",
         );
-        assert!(ats.score > path.score, "ATS embed should score higher than path probe");
+        assert!(
+            ats.score > path.score,
+            "ATS embed should score higher than path probe"
+        );
     }
 
     #[test]
@@ -996,12 +1078,11 @@ mod tests {
     #[test]
     fn context_deduplicates_candidates() {
         let mut ctx = ProbeContext::new("acme.com");
-        let make = |url: &str| Candidate::new(
-            url.into(), Platform::Unknown, None, 1, "", "path_probe"
-        );
+        let make =
+            |url: &str| Candidate::new(url.into(), Platform::Unknown, None, 1, "", "path_probe");
         ctx.add(make("https://acme.com/careers/"));
-        ctx.add(make("https://acme.com/careers"));  // trailing slash stripped
-        ctx.add(make("https://acme.com/careers/"));  // exact dup
+        ctx.add(make("https://acme.com/careers")); // trailing slash stripped
+        ctx.add(make("https://acme.com/careers/")); // exact dup
         assert_eq!(ctx.candidates.len(), 1);
     }
 }

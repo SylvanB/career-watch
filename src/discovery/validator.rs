@@ -137,7 +137,11 @@ mod tests {
             Platform::SmartRecruiters,
         ] {
             let (valid, _) = has_job_listings(html, platform);
-            assert!(valid, "{} should be accepted unconditionally", platform.as_str());
+            assert!(
+                valid,
+                "{} should be accepted unconditionally",
+                platform.as_str()
+            );
         }
     }
 

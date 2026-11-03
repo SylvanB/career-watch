@@ -9,8 +9,8 @@ use axum::{
     Extension, Json,
 };
 use serde::Deserialize;
-use uuid::Uuid;
 use url::Url;
+use uuid::Uuid;
 
 use crate::models::{AuthUser, CreateWatchRequest, Watch, WatchRow};
 use crate::AppState;
@@ -56,23 +56,24 @@ pub async fn create_watch(
     if !user.email_verified {
         return Err((
             StatusCode::FORBIDDEN,
-            Json(serde_json::json!({"error": "email address must be verified before creating watchers"})),
+            Json(
+                serde_json::json!({"error": "email address must be verified before creating watchers"}),
+            ),
         ));
     }
 
     let max = user.tier.max_watchers();
-    let current: i64 = sqlx::query_scalar(
-        "SELECT COUNT(*) FROM watchers WHERE user_id = $1 AND active = true",
-    )
-    .bind(user.id)
-    .fetch_one(&state.db)
-    .await
-    .map_err(|_| {
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(serde_json::json!({"error": "internal error"})),
-        )
-    })?;
+    let current: i64 =
+        sqlx::query_scalar("SELECT COUNT(*) FROM watchers WHERE user_id = $1 AND active = true")
+            .bind(user.id)
+            .fetch_one(&state.db)
+            .await
+            .map_err(|_| {
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(serde_json::json!({"error": "internal error"})),
+                )
+            })?;
 
     if current >= max {
         return Err((
@@ -97,7 +98,7 @@ pub async fn create_watch(
     .bind(Uuid::new_v4())
     .bind(&payload.company_name)
     .bind(&payload.url)
-    .bind(&user.email)  // notifications go to the account email
+    .bind(&user.email) // notifications go to the account email
     .bind(&payload.job_selector)
     .bind(user.id)
     .fetch_one(&state.db)
@@ -158,7 +159,7 @@ pub async fn update_watch(
         "#,
     )
     .bind(payload.url.as_deref())
-    .bind(payload.job_selector.as_deref())   // NULL clears the selector
+    .bind(payload.job_selector.as_deref()) // NULL clears the selector
     .bind(id)
     .bind(user.id)
     .fetch_optional(&state.db)
@@ -186,15 +187,13 @@ pub async fn delete_watch(
     Extension(user): Extension<AuthUser>,
     Path(id): Path<Uuid>,
 ) -> Result<StatusCode, StatusCode> {
-    let rows = sqlx::query(
-        "UPDATE watchers SET active = false WHERE id = $1 AND user_id = $2",
-    )
-    .bind(id)
-    .bind(user.id)
-    .execute(&state.db)
-    .await
-    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
-    .rows_affected();
+    let rows = sqlx::query("UPDATE watchers SET active = false WHERE id = $1 AND user_id = $2")
+        .bind(id)
+        .bind(user.id)
+        .execute(&state.db)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+        .rows_affected();
 
     if rows == 0 {
         Err(StatusCode::NOT_FOUND)

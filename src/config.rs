@@ -45,8 +45,8 @@ pub struct AppConfig {
 
 impl AppConfig {
     pub fn from_env() -> Result<Self, anyhow::Error> {
-        let database_url = env::var("DATABASE_URL")
-            .map_err(|_| anyhow::anyhow!("DATABASE_URL must be set"))?;
+        let database_url =
+            env::var("DATABASE_URL").map_err(|_| anyhow::anyhow!("DATABASE_URL must be set"))?;
 
         let bind_addr = env::var("BIND_ADDR").unwrap_or_else(|_| "0.0.0.0:8080".to_string());
 
@@ -70,8 +70,8 @@ impl AppConfig {
         let stripe_price_pro = env::var("STRIPE_PRICE_PRO").unwrap_or_default();
         let stripe_price_business = env::var("STRIPE_PRICE_BUSINESS").unwrap_or_default();
 
-        let app_base_url = env::var("APP_BASE_URL")
-            .unwrap_or_else(|_| "http://localhost:8080".to_string());
+        let app_base_url =
+            env::var("APP_BASE_URL").unwrap_or_else(|_| "http://localhost:8080".to_string());
         let admin_secret =
             env::var("ADMIN_SECRET").unwrap_or_else(|_| "change-me-in-production".to_string());
         let cookie_secure = env::var("COOKIE_SECURE")
@@ -79,13 +79,12 @@ impl AppConfig {
             .to_lowercase()
             != "false";
 
-        let ollama_host = env::var("OLLAMA_HOST")
-            .unwrap_or_else(|_| "http://localhost:11434".to_string());
-        let ollama_model = env::var("OLLAMA_MODEL")
-            .unwrap_or_else(|_| "qwen2.5:3b".to_string());
+        let ollama_host =
+            env::var("OLLAMA_HOST").unwrap_or_else(|_| "http://localhost:11434".to_string());
+        let ollama_model = env::var("OLLAMA_MODEL").unwrap_or_else(|_| "qwen2.5:3b".to_string());
         // Extraction model defaults to the general model if not explicitly set.
-        let ollama_extraction_model = env::var("OLLAMA_EXTRACTION_MODEL")
-            .unwrap_or_else(|_| ollama_model.clone());
+        let ollama_extraction_model =
+            env::var("OLLAMA_EXTRACTION_MODEL").unwrap_or_else(|_| ollama_model.clone());
 
         Ok(Self {
             database_url,

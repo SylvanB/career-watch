@@ -49,8 +49,12 @@ pub struct PaginationParams {
     pub limit: i64,
 }
 
-fn default_page() -> i64 { 1 }
-fn default_limit() -> i64 { 50 }
+fn default_page() -> i64 {
+    1
+}
+fn default_limit() -> i64 {
+    50
+}
 
 // ── Handlers ──────────────────────────────────────────────────────────────────
 
@@ -92,13 +96,12 @@ pub async fn get_user(
     .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
     .ok_or(StatusCode::NOT_FOUND)?;
 
-    let watcher_count: i64 = sqlx::query_scalar(
-        "SELECT COUNT(*) FROM watchers WHERE user_id = $1 AND active = true",
-    )
-    .bind(user_id)
-    .fetch_one(&state.db)
-    .await
-    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let watcher_count: i64 =
+        sqlx::query_scalar("SELECT COUNT(*) FROM watchers WHERE user_id = $1 AND active = true")
+            .bind(user_id)
+            .fetch_one(&state.db)
+            .await
+            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
     let stripe_customer_id: Option<String> =
         sqlx::query_scalar("SELECT stripe_customer_id FROM users WHERE id = $1")
@@ -124,15 +127,13 @@ pub async fn patch_user_tier(
     Path(user_id): Path<Uuid>,
     Json(payload): Json<PatchTierRequest>,
 ) -> Result<StatusCode, StatusCode> {
-    let rows = sqlx::query(
-        "UPDATE users SET tier = $1, updated_at = now() WHERE id = $2",
-    )
-    .bind(&payload.tier)
-    .bind(user_id)
-    .execute(&state.db)
-    .await
-    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
-    .rows_affected();
+    let rows = sqlx::query("UPDATE users SET tier = $1, updated_at = now() WHERE id = $2")
+        .bind(&payload.tier)
+        .bind(user_id)
+        .execute(&state.db)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+        .rows_affected();
 
     if rows == 0 {
         Err(StatusCode::NOT_FOUND)

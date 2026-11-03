@@ -16,6 +16,12 @@ pub struct PageScraper {
     client: Client,
 }
 
+impl Default for PageScraper {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl PageScraper {
     pub fn new() -> Self {
         let client = Client::builder()
@@ -67,7 +73,8 @@ impl PageScraper {
         job_selector: &str,
         company_name: &str,
     ) -> Result<Vec<JobPosting>> {
-        self.fetch_jobs_with_selectors(url, job_selector, None, None, company_name).await
+        self.fetch_jobs_with_selectors(url, job_selector, None, None, company_name)
+            .await
     }
 
     pub async fn fetch_jobs_with_selectors(
@@ -91,7 +98,13 @@ impl PageScraper {
             .context("failed to read page body")?;
 
         if let Some(title_sel) = title_selector {
-            extract_jobs_two_level(&body, job_selector, title_sel, location_selector, company_name)
+            extract_jobs_two_level(
+                &body,
+                job_selector,
+                title_sel,
+                location_selector,
+                company_name,
+            )
         } else {
             extract_jobs_from_html(&body, job_selector, company_name)
         }
@@ -126,8 +139,7 @@ pub fn extract_jobs_two_level(
         .map_err(|_| anyhow::anyhow!("invalid card selector: {}", card_selector))?;
     let title_sel = Selector::parse(title_selector)
         .map_err(|_| anyhow::anyhow!("invalid title selector: {}", title_selector))?;
-    let loc_sel = location_selector
-        .and_then(|s| Selector::parse(s).ok());
+    let loc_sel = location_selector.and_then(|s| Selector::parse(s).ok());
 
     let mut jobs = Vec::new();
 
@@ -136,30 +148,44 @@ pub fn extract_jobs_two_level(
         let title = card
             .select(&title_sel)
             .next()
-            .map(|el| el.text().collect::<String>().split_whitespace().collect::<Vec<_>>().join(" "))
+            .map(|el| {
+                el.text()
+                    .collect::<String>()
+                    .split_whitespace()
+                    .collect::<Vec<_>>()
+                    .join(" ")
+            })
             .unwrap_or_default()
             .trim()
             .to_string();
 
-        if title.is_empty() { continue; }
+        if title.is_empty() {
+            continue;
+        }
 
         // Location: first matching child element, if selector provided.
-        let location = loc_sel.as_ref().and_then(|s| {
-            card.select(s).next().map(|el| {
-                el.text().collect::<String>()
-                    .split_whitespace()
-                    .collect::<Vec<_>>()
-                    .join(" ")
-                    .trim()
-                    .to_string()
-            })
-        }).filter(|s| !s.is_empty());
-
-        let url = card.value().attr("href")
-            .or_else(|| {
-                Selector::parse("a[href]").ok().and_then(|s| {
-                    card.select(&s).next()?.value().attr("href")
+        let location = loc_sel
+            .as_ref()
+            .and_then(|s| {
+                card.select(s).next().map(|el| {
+                    el.text()
+                        .collect::<String>()
+                        .split_whitespace()
+                        .collect::<Vec<_>>()
+                        .join(" ")
+                        .trim()
+                        .to_string()
                 })
+            })
+            .filter(|s| !s.is_empty());
+
+        let url = card
+            .value()
+            .attr("href")
+            .or_else(|| {
+                Selector::parse("a[href]")
+                    .ok()
+                    .and_then(|s| card.select(&s).next()?.value().attr("href"))
             })
             .map(String::from);
 
@@ -231,19 +257,16 @@ pub fn extract_jobs_from_html(
             continue;
         }
 
-        let posted_text = element
-            .value()
-            .attr("data-posted")
-            .map(|s| s.to_string());
+        let posted_text = element.value().attr("data-posted").map(|s| s.to_string());
 
         let url = element
             .value()
             .attr("href")
             .or_else(|| {
                 // Look for an <a href> child if the matched element isn't itself a link
-                Selector::parse("a[href]").ok().and_then(|s| {
-                    element.select(&s).next()?.value().attr("href")
-                })
+                Selector::parse("a[href]")
+                    .ok()
+                    .and_then(|s| element.select(&s).next()?.value().attr("href"))
             })
             .map(|s| s.to_string());
 
@@ -263,14 +286,14 @@ pub fn extract_jobs_from_html(
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 /// Location-related class name keywords.
-const LOCATION_CLASS_KEYWORDS: &[&str] = &[
-    "location", "city", "region", "place", "office", "geo",
-];
+const LOCATION_CLASS_KEYWORDS: &[&str] = &["location", "city", "region", "place", "office", "geo"];
 
 /// Find the first child element whose class name suggests it holds location data.
 /// Returns the trimmed text of that element, or None.
 fn find_location_child(el: &ElementRef) -> Option<String> {
-    let Ok(any) = Selector::parse("*") else { return None };
+    let Ok(any) = Selector::parse("*") else {
+        return None;
+    };
     for child in el.select(&any) {
         let class = child.value().attr("class").unwrap_or("");
         let lower = class.to_lowercase();
@@ -302,7 +325,7 @@ pub fn split_title_from_location(text: &str) -> (String, Option<String>) {
             let candidate = &text[chars[..i].iter().map(|c| c.len_utf8()).sum::<usize>()..];
             if looks_like_location(candidate) {
                 let boundary = chars[..i].iter().map(|c| c.len_utf8()).sum::<usize>();
-                let title    = text[..boundary].trim().to_string();
+                let title = text[..boundary].trim().to_string();
                 let location = candidate.trim().to_string();
                 if !title.is_empty() && !location.is_empty() {
                     return (title, Some(location));
@@ -317,17 +340,25 @@ pub fn split_title_from_location(text: &str) -> (String, Option<String>) {
 /// Return true if the string looks like a location (City, State/Country or "Remote").
 fn looks_like_location(s: &str) -> bool {
     let s = s.trim();
-    if s.is_empty() || s.len() > 80 { return false; }
+    if s.is_empty() || s.len() > 80 {
+        return false;
+    }
 
     // Must start with uppercase
-    if !s.starts_with(|c: char| c.is_uppercase()) { return false; }
+    if !s.starts_with(|c: char| c.is_uppercase()) {
+        return false;
+    }
 
     // "City, State" or "City, Country" — most common format
-    if s.contains(", ") { return true; }
+    if s.contains(", ") {
+        return true;
+    }
 
     // Single-word remote/global patterns
     const SINGLE_WORD: &[&str] = &["Remote", "Worldwide", "Anywhere", "Global", "Virtual"];
-    SINGLE_WORD.iter().any(|&w| s == w || s.starts_with(&format!("{} ", w)))
+    SINGLE_WORD
+        .iter()
+        .any(|&w| s == w || s.starts_with(&format!("{} ", w)))
 }
 
 #[cfg(test)]
@@ -381,7 +412,10 @@ mod tests {
         let jobs = extract_jobs_from_html(html, ".opening", "Acme").unwrap();
         assert_eq!(jobs.len(), 2);
         assert_eq!(jobs[0].title, "Senior Engineer");
-        assert_eq!(jobs[0].location.as_deref(), Some("San Francisco, California"));
+        assert_eq!(
+            jobs[0].location.as_deref(),
+            Some("San Francisco, California")
+        );
         assert_eq!(jobs[1].location.as_deref(), Some("New York, New York"));
     }
 
@@ -399,7 +433,8 @@ mod tests {
 
     #[test]
     fn splits_concatenated_title_and_location() {
-        let (title, loc) = split_title_from_location("AI Applications EngineerSan Francisco, California");
+        let (title, loc) =
+            split_title_from_location("AI Applications EngineerSan Francisco, California");
         assert_eq!(title, "AI Applications Engineer");
         assert_eq!(loc.as_deref(), Some("San Francisco, California"));
     }
@@ -434,7 +469,10 @@ mod tests {
         "#;
         let jobs = extract_jobs_from_html(html, ".opening", "Notion").unwrap();
         assert_eq!(jobs[0].title, "AI Applications Engineer");
-        assert_eq!(jobs[0].location.as_deref(), Some("San Francisco, California"));
+        assert_eq!(
+            jobs[0].location.as_deref(),
+            Some("San Francisco, California")
+        );
         assert_eq!(jobs[1].title, "Product Manager");
         assert_eq!(jobs[1].location.as_deref(), Some("New York, New York"));
     }
@@ -447,7 +485,7 @@ mod tests {
         assert!(looks_like_location("London, United Kingdom"));
         assert!(looks_like_location("Remote"));
         assert!(looks_like_location("Worldwide"));
-        assert!(!looks_like_location("of Engineering"));  // starts lowercase after 'o'
+        assert!(!looks_like_location("of Engineering")); // starts lowercase after 'o'
         assert!(!looks_like_location(""));
         assert!(!looks_like_location(&"x".repeat(100))); // too long
     }
