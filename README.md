@@ -2,6 +2,10 @@
 
 A SaaS application that monitors company career pages for job listing changes and notifies users by email when roles appear or disappear.
 
+## Demo
+
+![CareerWatch landing page](assets/career-watch-landing.png)
+
 ```
 internet
    ↓
